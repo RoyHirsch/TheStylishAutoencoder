@@ -109,7 +109,8 @@ def greedy_decode(preds, stop_ind=1012):
 
 
 def crop_sentence(ids_tensor, stop_ind):
-    ''' Gets  an input tensor of word ids with padding,
+    ''' TODO: roy - not done !
+        Gets  an input tensor of word ids with padding,
         drop out the padding and return a list
         0 - padding of 0
         1012 - period '''
