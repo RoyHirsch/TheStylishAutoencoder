@@ -142,10 +142,10 @@ def test_random_samples(data_iter, model_enc, model_dec, model_cls, device, deco
             src_mask = src_mask.to(device)
             trg_mask = trg_mask.to(device)
             labels = labels.to(device)
+            true_labels = copy.deepcopy(labels)
 
             # logical not on labels if transfer_style is set
             if transfer_style:
-                true_labels = copy.deepcopy(labels)
                 labels = ~labels.byte()
                 labels = labels.long()
 
