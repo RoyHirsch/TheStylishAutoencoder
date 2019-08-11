@@ -145,9 +145,9 @@ def test_random_samples(data_iter, model_enc, model_dec, model_cls, device, deco
 
             # logical not on labels if transfer_style is set
             if transfer_style:
+                true_labels = copy.deepcopy(labels)
                 labels = ~labels.byte()
                 labels = labels.long()
-                true_labels = copy.deepcopy(labels)
 
             encode_out = model_enc(src, src_mask)
             preds = model_dec(encode_out, labels, src_mask, src, trg_mask)
