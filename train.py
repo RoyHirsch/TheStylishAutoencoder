@@ -120,7 +120,7 @@ class EntropyLoss(nn.Module):
 
     def forward(self, x):
         b = F.softmax(x, dim=1) * F.log_softmax(x, dim=1)
-        b = -1.0 * b.sum()
+        b = b.sum()
         return b
 
 
@@ -134,7 +134,6 @@ class LabelSmoothing(nn.Module):
         self.confidence = 1.0 - smoothing
         self.smoothing = smoothing
         self.size = size
-        self.true_dist = None
 
     def forward(self, x, target):
         assert x.size(1) == self.size
@@ -145,7 +144,6 @@ class LabelSmoothing(nn.Module):
         mask = torch.nonzero(target.data == self.padding_idx)
         if mask.dim() > 0:
             true_dist.index_fill_(0, mask.squeeze(), 0.0)
-        self.true_dist = true_dist
         return self.criterion(x, Variable(true_dist, requires_grad=False))
 
 
