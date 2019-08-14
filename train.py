@@ -69,8 +69,7 @@ class ResourcesManager:
         model_enc, model_dec = make_encoder_decoder(src_vocab=vocab_size, tgt_vocab=vocab_size,
                                                     N=N_LAYERS, d_model=H_DIM, d_ff=FC_DIM,
                                                     h=N_ATTN_HEAD, n_styles=N_STYLES, dropout=DO_RATE)
-        model_cls = Descriminator(batch_size=TRAIN_BATCH_SIZE, output_size=N_STYLES,
-                                  hidden_size=H_DIM, vocab_size=vocab_size,
+        model_cls = Descriminator(output_size=N_STYLES, hidden_size=H_DIM,
                                   embedding_length=H_DIM, drop_rate=DO_RATE_CLS)
 
         self.models = {

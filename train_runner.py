@@ -14,6 +14,7 @@ from pytorch_transformers import BertTokenizer
 
 from data import *
 from train import *
+from evaluate import *
 from utils import *
 from params import *
 

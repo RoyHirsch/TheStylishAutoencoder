@@ -1,98 +1,71 @@
 import torch
 import torch.nn as nn
-from torch.autograd import Variable
 from torch.nn import functional as F
 
 from params import *
 
 class Descriminator(nn.Module):
-    def __init__(self, batch_size, output_size, hidden_size, vocab_size,
+    ''' https://github.com/AnubhavGupta3377/Text-Classification-Models-Pytorch '''
+
+    def __init__(self, output_size, hidden_size,
                  embedding_length, drop_rate):
 
         super(Descriminator, self).__init__()
 
-        """
-        Arguments
-        ---------
-        batch_size : Size of the batch which is same as the batch_size of the data returned by the TorchText BucketIterator
-        output_size : 2 = (pos, neg)
-        hidden_sie : Size of the hidden_state of the LSTM
-        vocab_size : Size of the vocabulary containing unique words
-        embedding_length : Embeddding dimension of GloVe word embeddings
-
-        --------
-
-        """
-
-        self.batch_size = batch_size
-        self.output_size = output_size
         self.hidden_size = hidden_size
-        self.vocab_size = vocab_size
-        self.dropout = drop_rate
-        self.bilstm = nn.LSTM(embedding_length, hidden_size, dropout=self.dropout, bidirectional=True)
-        # We will use da = 350, r = 30 & penalization_coeff = 1 as per given in the self-attention original ICLR paper
-        self.W_s1 = nn.Linear(2 * hidden_size, 350)
-        self.W_s2 = nn.Linear(350, 30)
-        self.fc_layer = nn.Linear(30 * 2 * hidden_size, 2000)
-        self.label = nn.Linear(2000, output_size)
+        # Encoder RNN
+        self.lstm = nn.LSTM(input_size=embedding_length,
+                            hidden_size=hidden_size,
+                            num_layers=1,
+                            bidirectional=True)
 
-    def attention_net(self, lstm_output):
+        # Dropout Layer
+        self.dropout = nn.Dropout(drop_rate)
 
-        """
-        Now we will use self attention mechanism to produce a matrix embedding of the input sentence in which every row represents an
-        encoding of the inout sentence but giving an attention to a specific part of the sentence. We will use 30 such embedding of
-        the input sentence and then finally we will concatenate all the 30 sentence embedding vectors and connect it to a fully
-        connected layer of size 2000 which will be connected to the output layer of size 2 returning logits for our two classes i.e.,
-        pos & neg.
-        Arguments
-        ---------
-        lstm_output = A tensor containing hidden states corresponding to each time step of the LSTM network.
-        ---------
-        Returns : Final Attention weight matrix for all the 30 different sentence embedding in which each of 30 embeddings give
-                  attention to different parts of the input sentence.
-        Tensor size : lstm_output.size() = (batch_size, num_seq, 2*hidden_size)
-                      attn_weight_matrix.size() = (batch_size, 30, num_seq)
-        """
-        attn_weight_matrix = self.W_s2(F.tanh(self.W_s1(lstm_output)))
-        attn_weight_matrix = attn_weight_matrix.permute(0, 2, 1)
-        attn_weight_matrix = F.softmax(attn_weight_matrix, dim=2)
+        # Fully-Connected Layer
+        self.fc = nn.Linear(hidden_size * 4, output_size)
 
-        return attn_weight_matrix
+        # Softmax non-linearity
+        self.softmax = nn.Softmax()
 
-    def forward(self, emb_input, batch_size=None):
+    def apply_attention(self, rnn_output, final_hidden_state):
+        '''
+        Apply Attention on RNN output
 
-        """
-        Parameters
-        ----------
-        emb_input: input_sentence of shape = (batch_size, max_len, h_dim)
-        batch_size : default = None. Used only for prediction on a single sentence after training (batch_size = 1)
+        Input:
+            rnn_output (batch_size, seq_len, num_directions * hidden_size): tensor representing hidden state for every word in the sentence
+            final_hidden_state (batch_size, num_directions * hidden_size): final hidden state of the RNN
 
-        Returns
-        -------
-        Output of the linear layer containing logits for pos & neg class.
+        Returns:
+            attention_output(batch_size, num_directions * hidden_size): attention output vector for the batch
+        '''
+        hidden_state = final_hidden_state.unsqueeze(2)
+        attention_scores = torch.bmm(rnn_output, hidden_state).squeeze(2)
+        soft_attention_weights = F.softmax(attention_scores, 1).unsqueeze(2)  # shape = (batch_size, seq_len, 1)
+        attention_output = torch.bmm(rnn_output.permute(0, 2, 1), soft_attention_weights).squeeze(2)
+        return attention_output
 
-        """
-        emb_input = emb_input.permute(1, 0, 2)
-        if batch_size is None:
-            h_0 = Variable(torch.zeros(2, self.batch_size, self.hidden_size).cuda())
-            c_0 = Variable(torch.zeros(2, self.batch_size, self.hidden_size).cuda())
-        else:
-            h_0 = Variable(torch.zeros(2, batch_size, self.hidden_size).cuda())
-            c_0 = Variable(torch.zeros(2, batch_size, self.hidden_size).cuda())
+    def forward(self, x):
+        x = x.permute(1, 0, 2)
+        # x.shape = (max_sen_len, batch_size, embed_size)
 
-        output, (h_n, c_n) = self.bilstm(emb_input, (h_0, c_0))
-        output = output.permute(1, 0, 2)
-        # output.size() = (batch_size, num_seq, 2*hidden_size)
-        # h_n.size() = (1, batch_size, hidden_size)
-        # c_n.size() = (1, batch_size, hidden_size)
-        attn_weight_matrix = self.attention_net(output)
-        # attn_weight_matrix.size() = (batch_size, r, num_seq)
-        # output.size() = (batch_size, num_seq, 2*hidden_size)
-        hidden_matrix = torch.bmm(attn_weight_matrix, output)
-        # hidden_matrix.size() = (batch_size, r, 2*hidden_size)
-        # Let's now concatenate the hidden_matrix and connect it to the fully connected layer.
-        fc_out = self.fc_layer(hidden_matrix.view(-1, hidden_matrix.size()[1] * hidden_matrix.size()[2]))
-        logits = self.label(fc_out)
-        # logits.size() = (batch_size, output_size)
+        ##################################### Encoder #######################################
+        lstm_output, (h_n, c_n) = self.lstm(x)
+        # lstm_output.shape = (seq_len, batch_size, num_directions * hidden_size)
 
-        return logits, attn_weight_matrix
+        # Final hidden state of last layer (num_directions, batch_size, hidden_size)
+        batch_size = h_n.shape[1]
+        h_n_final_layer = h_n.view(1, 2, batch_size, self.hidden_size)[-1, :, :, :]
+
+        ##################################### Attention #####################################
+        # Convert input to (batch_size, num_directions * hidden_size) for attention
+        final_hidden_state = torch.cat([h_n_final_layer[i, :, :] for i in range(h_n_final_layer.shape[0])], dim=1)
+
+        attention_out = self.apply_attention(lstm_output.permute(1, 0, 2), final_hidden_state)
+        # Attention_out.shape = (batch_size, num_directions * hidden_size)
+
+        #################################### Linear #########################################
+        concatenated_vector = torch.cat([final_hidden_state, attention_out], dim=1)
+        final_feature_map = self.dropout(concatenated_vector)  # shape=(batch_size, num_directions * hidden_size)
+        final_out = self.fc(final_feature_map)
+        return self.softmax(final_out)

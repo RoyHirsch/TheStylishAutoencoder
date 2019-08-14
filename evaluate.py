@@ -80,7 +80,7 @@ def evaluate(epoch, data_iter, model_enc, model_dec,
             # classifier loss
             encode_out = model_enc(src, src_mask)
             cls_preds = model_cls(encode_out)
-            cls_loss = cls_criteria(cls_preds[0], labels)
+            cls_loss = cls_criteria(cls_preds, labels)
             cls_running_loss += cls_loss.item()
 
             # rec loss
@@ -91,10 +91,12 @@ def evaluate(epoch, data_iter, model_enc, model_dec,
 
             # entrophy loss
             cls_preds = model_cls(encode_out)
-            ent_loss = ent_criteria(cls_preds[0])
-            ent_running_loss += rec_loss.item()
+            ent_loss = ent_criteria(cls_preds)
+            ent_running_loss += ent_loss.item()
+
+            # accuracy
             rec_acc.update(preds, src)
-            cls_acc.update(cls_preds[0], labels)
+            cls_acc.update(cls_preds, labels)
 
     print("eval-e-{}: loss cls: {:.3f}, loss rec: {:.3f}, loss ent: {:.3f}".format(epoch, cls_running_loss / i,
                                                                                    rec_running_loss / i,
