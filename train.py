@@ -221,7 +221,6 @@ def run_epoch(epoch, resource_manager, data_iter, model_enc, opt_enc, model_dec,
 
     for step, batch in enumerate(data_iter):
         # prepare batch
-        i = step % (trans_steps + cls_steps)
         src, labels = batch
         src_mask, trg_mask = make_masks(src, src, device)
 
@@ -230,18 +229,8 @@ def run_epoch(epoch, resource_manager, data_iter, model_enc, opt_enc, model_dec,
         trg_mask = trg_mask.to(device)
         labels = labels.to(device)
 
-        if i >= trans_steps:  # training the classifier
-            if i == trans_steps:  # switch from trans_train setting to cls_train setting
-                print("Training CLS")
-                setting = "cls"
-                model_cls.train()
-                model_enc.eval()
-
-            running_loss += train_cls_step(model_enc=model_enc, model_cls=model_cls, cls_opt=opt_cls,
-                                           cls_criteria=cls_criteria, src=src, src_mask=src_mask,
-                                           labels=labels)
-
-        else:  # training the tranformer
+        i = step % (trans_steps + cls_steps)  # step in the cls-trans period
+        if i < trans_steps:  # training the tranformer
             if i == 0:  # switch from cls_train setting to trans_train setting
                 print("Training TRANS")
                 setting = "trans"
@@ -255,7 +244,18 @@ def run_epoch(epoch, resource_manager, data_iter, model_enc, opt_enc, model_dec,
                                                         src_mask, labels, trg_mask)
             running_loss += enc_loss
 
-        if (step % print_interval == print_interval - 1):
+        else:  # training the classifier
+            if i == trans_steps:  # switch from trans_train setting to cls_train setting
+                print("Training CLS")
+                setting = "cls"
+                model_cls.train()
+                model_enc.eval()
+
+            running_loss += train_cls_step(model_enc=model_enc, model_cls=model_cls, cls_opt=opt_cls,
+                                           cls_criteria=cls_criteria, src=src, src_mask=src_mask,
+                                           labels=labels)
+
+        if step % print_interval == print_interval - 1:
             if verbose:
                 print("e-{},s-{}: Training {} loss {}".format(epoch, step, setting, running_loss / print_interval))
             if setting == "cls":
