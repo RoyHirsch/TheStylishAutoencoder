@@ -92,7 +92,7 @@ def evaluate(epoch, data_iter, model_enc, model_dec,
             # entrophy loss
             cls_preds = model_cls(encode_out)
             ent_loss = ent_criteria(cls_preds[0])
-            ent_running_loss += rec_loss.item()
+            ent_running_loss += ent_loss.item()
             rec_acc.update(preds, src)
             cls_acc.update(cls_preds[0], labels)
 
