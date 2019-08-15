@@ -100,7 +100,6 @@ dec_opt = get_std_opt(model_dec, params)
 
 early_stop = EarlyStopping(params.PATIENCE)
 for epoch in range(Params.N_EPOCHS):
-  rm.on_epoch_end(epoch)
 
   run_epoch(epoch, rm, train_iter, model_enc, enc_opt, model_dec, dec_opt,
               model_cls, cls_opt, cls_criteria, seq2seq_criteria,
