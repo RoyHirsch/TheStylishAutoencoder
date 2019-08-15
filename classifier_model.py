@@ -2,8 +2,6 @@ import torch
 import torch.nn as nn
 from torch.nn import functional as F
 
-from params import *
-
 class Descriminator(nn.Module):
     ''' https://github.com/AnubhavGupta3377/Text-Classification-Models-Pytorch '''
 
@@ -68,4 +66,4 @@ class Descriminator(nn.Module):
         concatenated_vector = torch.cat([final_hidden_state, attention_out], dim=1)
         final_feature_map = self.dropout(concatenated_vector)  # shape=(batch_size, num_directions * hidden_size)
         final_out = self.fc(final_feature_map)
-        return self.softmax(final_out)
+        return final_out
