@@ -291,7 +291,6 @@ class StyleDecoder(nn.Module):
         dec_out = self.decoder(self.src_embed(tgt), memory, src_mask, tgt_mask)
         return self.generator(dec_out)
 
-
 def make_encoder_decoder(src_vocab, tgt_vocab, N=6,
                          d_model=512, d_ff=2048, h=8, n_styles=2, dropout=0.1):
     "Helper: Construct a model from hyperparameters."

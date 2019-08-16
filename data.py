@@ -1,6 +1,7 @@
 from bs4 import BeautifulSoup
 import torch
 import numpy as np
+import logging
 from torchtext import data
 from torchtext import datasets
 from torchtext.vocab import Vectors, GloVe
@@ -27,7 +28,7 @@ def make_masks(src, tgt, device, pad=0):
     src_mask = (src != pad).unsqueeze(-2)
     return src_mask, tgt_mask
 
-def load_dataset(params, fix_length, device):
+def load_dataset(params, device):
     """
     tokenizer : Breaks sentences into a list of words. If sequential=False, no tokenization is applied
     Field : A class that stores information about the way of preprocessing
@@ -54,7 +55,7 @@ def load_dataset(params, fix_length, device):
     LABEL = data.LabelField()
 
     data_source = params.DATASET_NAME
-    print('Start loading dataset {}:'.format(data_source))
+    logging.info('Start loading dataset {}:'.format(data_source))
 
     if data_source == 'IMDB':
         train_data, test_data = datasets.IMDB.splits(TEXT, LABEL)
@@ -64,14 +65,14 @@ def load_dataset(params, fix_length, device):
 
     if params.VOCAB_USE_GLOVE:
         TEXT.build_vocab(train_data, test_data, min_freq=params.VOCAB_MIN_FREQ, vectors=GloVe(name='6B', dim=300))
-        print("Loaded Glove embedding, Vector size of Text Vocabulary: ", TEXT.vocab.vectors.size())
+        logging.info("Loaded Glove embedding, Vector size of Text Vocabulary: ", TEXT.vocab.vectors.size())
 
     else:
         TEXT.build_vocab(train_data, test_data, min_freq=params.VOCAB_MIN_FREQ)
     LABEL.build_vocab(train_data)
 
     word_embeddings = TEXT.vocab.vectors
-    print("Length of Text Vocabulary: " + str(len(TEXT.vocab)))
+    logging.info("Length of Text Vocabulary: " + str(len(TEXT.vocab)))
 
     train_iter, test_iter = data.BucketIterator.splits((train_data, test_data),
                                                        batch_sizes=(params.TRAIN_BATCH_SIZE, params.TRAIN_BATCH_SIZE),

@@ -2,11 +2,12 @@ import torch
 from torch.nn import functional as F
 from torch.autograd import Variable
 import torch.nn as nn
+import logging
+import os
 
 from data import make_masks
 from transformer_model import *
 from classifier_model import *
-from params import *
 
 class NoamOpt:
     "Optim wrapper that implements rate."
@@ -46,7 +47,7 @@ def get_std_opt(model, params):
 
 
 class ResourcesManager:
-    def __init__(self, vocab_size, save_path, experiment_name, params, load_path=False,
+    def __init__(self, vocab_size, experiment_name, params, load_path=None,
                  enc_name="_enc", dec_name="_dec", cls_name="_cls"):
         self.exp_name = experiment_name
         self.suffix = '.pth'
@@ -56,8 +57,10 @@ class ResourcesManager:
             "cls": cls_name
         }
 
-        self.save_paths = self.get_paths_dict(save_path)
-        self.save_path = save_path
+        exp_folder = os.path.join(params.DATA_PATH, 'exp_' + str(params.EXP_NUM))
+
+        self.save_path = exp_folder
+        self.save_paths = self.get_paths_dict(exp_folder)
         self.init_models(vocab_size, params)
         self.load_path = load_path
         if load_path:
@@ -91,7 +94,7 @@ class ResourcesManager:
             try:
                 self.models[key].load_state_dict(torch.load(path))
             except IOError:
-                print("{}'s state not found in {}".format(key, path))
+                logging.info("{}'s state not found in {}".format(key, path))
 
     def save_model(self, key, save_path=None, verbose=False):
         try:
@@ -103,7 +106,7 @@ class ResourcesManager:
         try:
             torch.save(model.state_dict(), save_path)
             if verbose:
-                print("Saved {} model to {}".format(key, save_path))
+                logging.info("Saved {} model to {}".format(key, save_path))
         except IOError:
             raise ValueError("couldn't save {} model's state, {} doesn't exist".format(key, save_path))
 
@@ -113,7 +116,7 @@ class ResourcesManager:
     def on_epoch_end(self, epoch):
         epoch_str = '_e{}_'.format(epoch)
         for key, val in self.path_ends.items():
-            self.save_model(key, save_path=self.save_path + self.exp_name + epoch_str + val + self.suffix, verbose=False)
+            self.save_model(key, save_path=os.path.join(self.save_path, self.exp_name + epoch_str + val + self.suffix), verbose=False)
 
 
 """
@@ -214,7 +217,6 @@ def train_transformer_step(model_cls, model_enc, model_dec, seq2seq_criteria,
 
     return loss_val, rec_loss.item()
 
-
 def run_epoch(epoch, resource_manager, data_iter, model_enc, opt_enc, model_dec, opt_dec,
               model_cls, opt_cls, cls_criteria, seq2seq_criteria,
               ent_criteria, device, params):
@@ -242,7 +244,7 @@ def run_epoch(epoch, resource_manager, data_iter, model_enc, opt_enc, model_dec,
 
         if i >= trans_steps:  # training the classifier
             if i == trans_steps:  # switch from trans_train setting to cls_train setting
-                print("Training CLS")
+                logging.info("Training CLS")
                 setting = "cls"
                 model_cls.train()
                 model_enc.eval()
@@ -253,7 +255,7 @@ def run_epoch(epoch, resource_manager, data_iter, model_enc, opt_enc, model_dec,
 
         else:  # training the tranformer
             if i == 0:  # switch from cls_train setting to trans_train setting
-                print("Training TRANS")
+                logging.info("Training TRANS")
                 setting = "trans"
                 model_cls.eval()
                 model_enc.train()
@@ -267,10 +269,5 @@ def run_epoch(epoch, resource_manager, data_iter, model_enc, opt_enc, model_dec,
 
         if (step % print_interval == print_interval - 1):
             if verbose:
-                print("e-{},s-{}: Training {} loss {}".format(epoch, step, setting, running_loss / print_interval))
-            if setting == "cls":
-                resource_manager.save_model("cls", verbose=verbose)
-            else:  # trans
-                resource_manager.save_model("enc", verbose=verbose)
-                resource_manager.save_model("dec", verbose=verbose)
+                logging.info("e-{},s-{}: Training {} loss {}".format(epoch, step, setting, running_loss / print_interval))
             running_loss = 0.0

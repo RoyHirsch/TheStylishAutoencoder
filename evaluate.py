@@ -1,5 +1,6 @@
 import numpy as np
 import copy
+import logging
 
 import torch
 from torch.nn import functional as F
@@ -97,10 +98,10 @@ def evaluate(epoch, data_iter, model_enc, model_dec,
             rec_acc.update(preds, src)
             cls_acc.update(cls_preds, labels)
 
-    print("eval-e-{}: loss cls: {:.3f}, loss rec: {:.3f}, loss ent: {:.3f}".format(epoch, cls_running_loss / i,
+    logging.info("eval-e-{}: loss cls: {:.3f}, loss rec: {:.3f}, loss ent: {:.3f}".format(epoch, cls_running_loss / i,
                                                                                    rec_running_loss / i,
                                                                                    ent_running_loss / i))
-    print("eval-e-{}: acc cls: {:.3f}, acc rec: {:.3f}".format(epoch, rec_acc(), cls_acc()))
+    logging.info("eval-e-{}: acc cls: {:.3f}, acc rec: {:.3f}".format(epoch, rec_acc(), cls_acc()))
     # TODO - Roy - what metric to report ?
     return rec_acc
 
@@ -163,19 +164,19 @@ def test_random_samples(data_iter, TEXT, model_enc, model_dec, model_cls, device
             sent_as_list = src.squeeze(0).detach().cpu().numpy()
             src_sent = sent2str(sent_as_list, id2word, eos_id)
             src_label = 'pos' if true_labels.detach().item() == 1 else 'neg'
-            print('Original: text: {}'.format(src_sent))
-            print('Original: class: {}'.format(src_label))
+            logging.info('Original: text: {}'.format(src_sent))
+            logging.info('Original: class: {}'.format(src_label))
 
             pred_label = 'pos' if torch.argmax(cls_preds) == 1 else 'neg'
             if decode_func:
                 dec_sent = decode_func(preds, id2word, eos_id)
                 if transfer_style:
-                    print('Style transfer output:')
-                print('Predicted: text: {}'.format(dec_sent))
-                print('Predicted: class: {}'.format(pred_label))
+                    logging.info('Style transfer output:')
+                logging.info('Predicted: text: {}'.format(dec_sent))
+                logging.info('Predicted: class: {}'.format(pred_label))
 
             else:
-                print('Predicted: class: {}'.format(pred_label))
-            print('\n')
+                logging.info('Predicted: class: {}'.format(pred_label))
+            logging.info('\n')
 
             num_samples -= 1

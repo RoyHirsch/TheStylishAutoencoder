@@ -1,6 +1,7 @@
 import os
 import sys
 import numpy as np
+import logging
 
 import torch
 import torch.nn as nn
@@ -15,6 +16,8 @@ from utils import *
 class Params(object):
 
     # Loggin
+    # Free text to describe the experiment
+    COMMENT = ''
     VERBOSE = True
     EXP_NUM = 0
     # DATA_PATH = "/content/drive/My Drive/NLP/final/"
@@ -34,7 +37,7 @@ class Params(object):
     TEST_BATCH_SIZE = 16
     TRAIN_SIZE = 20000 # For debug
     # maximum length of allowed sentence - can be also None
-    MAX_LEN = None
+    MAX_LEN = 128
 
     # Transformer model
     N_LAYERS = 6
@@ -58,19 +61,12 @@ class Params(object):
 
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
-    def pprint(self):
-        print('Params for experiment:')
-        for attr in dir(self):
-            if attr.startswith('_'):
-                pass
-            else:
-                print("%s = %r" % (attr, getattr(self, attr)))
-
 params = Params()
-params.pprint()
+logger = create_logger(params)
+pprint_params(params)
 
-TEXT, word_embeddings, train_iter, test_iter = load_dataset(params=params, fix_length=params.MAX_LEN, device=params.device)
-print('Train dataset len: {} Test dataset len: {}'.format(len(train_iter.dataset), len(test_iter.dataset)))
+TEXT, word_embeddings, train_iter, test_iter = load_dataset(params=params, device=params.device)
+logging.info('Train dataset len: {} Test dataset len: {}'.format(len(train_iter.dataset), len(test_iter.dataset)))
 
 # Clear CUDA memory if needed
 # TODO: local use
@@ -79,8 +75,7 @@ print('Train dataset len: {} Test dataset len: {}'.format(len(train_iter.dataset
 ### Init models ###
 
 vocab_size = len(TEXT.vocab)
-rm = ResourcesManager(vocab_size, params.MODELS_PATH, "basic_exp_{}".format(params.EXP_NUM),
-                      params, load_path=params.MODELS_PATH)
+rm = ResourcesManager(vocab_size, "basic_exp_{}".format(params.EXP_NUM), params, load_path=None)
 models = rm.get_models()
 model_enc = models["enc"]
 model_dec = models["dec"]
