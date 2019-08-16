@@ -64,13 +64,14 @@ def load_dataset(params, fix_length, device):
 
     if params.VOCAB_USE_GLOVE:
         TEXT.build_vocab(train_data, test_data, min_freq=params.VOCAB_MIN_FREQ, vectors=GloVe(name='6B', dim=300))
+        print("Loaded Glove embedding, Vector size of Text Vocabulary: ", TEXT.vocab.vectors.size())
+
     else:
         TEXT.build_vocab(train_data, test_data, min_freq=params.VOCAB_MIN_FREQ)
     LABEL.build_vocab(train_data)
 
     word_embeddings = TEXT.vocab.vectors
     print("Length of Text Vocabulary: " + str(len(TEXT.vocab)))
-    print("Vector size of Text Vocabulary: ", TEXT.vocab.vectors.size())
 
     train_iter, test_iter = data.BucketIterator.splits((train_data, test_data),
                                                        batch_sizes=(params.TRAIN_BATCH_SIZE, params.TRAIN_BATCH_SIZE),
