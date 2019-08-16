@@ -26,6 +26,10 @@ class Params(object):
 
     # Data
     DATASET_NAME = 'IMDB'
+    # Min freq for word in dataset to include in vocab
+    VOCAB_MIN_FREQ = 5
+    # Whether to use Glove embadding - if TRUE set H_DIM to 300
+    VOCAB_USE_GLOVE = False
     TRAIN_BATCH_SIZE = 16
     TEST_BATCH_SIZE = 16
     TRAIN_SIZE = 20000 # For debug
@@ -65,10 +69,7 @@ class Params(object):
 params = Params()
 params.pprint()
 
-TEXT, word_embeddings, train_iter, test_iter = load_dataset(data_source=params.DATASET_NAME, fix_length=params.MAX_LEN,
-                                                            device=params.device, batch_size_train=params.TRAIN_BATCH_SIZE,
-                                                            batch_size_test=params.TEST_BATCH_SIZE)
-
+TEXT, word_embeddings, train_iter, test_iter = load_dataset(params=params, fix_length=params.MAX_LEN, device=params.device)
 print('Train dataset len: {} Test dataset len: {}'.format(len(train_iter.dataset), len(test_iter.dataset)))
 
 # Clear CUDA memory if needed

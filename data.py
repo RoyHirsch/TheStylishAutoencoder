@@ -27,7 +27,7 @@ def make_masks(src, tgt, device, pad=0):
     src_mask = (src != pad).unsqueeze(-2)
     return src_mask, tgt_mask
 
-def load_dataset(data_source, fix_length, device, batch_size_train, batch_size_test):
+def load_dataset(params, fix_length, device):
     """
     tokenizer : Breaks sentences into a list of words. If sequential=False, no tokenization is applied
     Field : A class that stores information about the way of preprocessing
@@ -48,20 +48,24 @@ def load_dataset(data_source, fix_length, device, batch_size_train, batch_size_t
         sentence = BeautifulSoup(sentence, 'html.parser').get_text()
         return [tok.text for tok in en.tokenizer(sentence)]
 
+    # eos_token - end of sentence token, batch_first - first dimension is batch, fix_length - can be also None
     TEXT = data.Field(sequential=True, tokenize=tokenize_spacy_with_html_parsing,
-                      lower=True, eos_token='<eos>', batch_first=True, fix_length=fix_length)
+                      lower=True, eos_token='<eos>', batch_first=True, fix_length=params.MAX_LEN)
     LABEL = data.LabelField()
 
+    data_source = params.DATASET_NAME
     print('Start loading dataset {}:'.format(data_source))
+
     if data_source == 'IMDB':
         train_data, test_data = datasets.IMDB.splits(TEXT, LABEL)
 
     elif data_source == 'SST':
         train_data, test_data = datasets.SST.splits(TEXT, LABEL)
-    else:
-        raise ValueError('Invalid data source ' + data_source)
 
-    TEXT.build_vocab(train_data, vectors=GloVe(name='6B', dim=300))
+    if params.VOCAB_USE_GLOVE:
+        TEXT.build_vocab(train_data, test_data, min_freq=params.VOCAB_MIN_FREQ, vectors=GloVe(name='6B', dim=300))
+    else:
+        TEXT.build_vocab(train_data, test_data, min_freq=params.VOCAB_MIN_FREQ)
     LABEL.build_vocab(train_data)
 
     word_embeddings = TEXT.vocab.vectors
@@ -69,8 +73,32 @@ def load_dataset(data_source, fix_length, device, batch_size_train, batch_size_t
     print("Vector size of Text Vocabulary: ", TEXT.vocab.vectors.size())
 
     train_iter, test_iter = data.BucketIterator.splits((train_data, test_data),
-                                                       batch_sizes=(batch_size_train, batch_size_test),
+                                                       batch_sizes=(params.TRAIN_BATCH_SIZE, params.TRAIN_BATCH_SIZE),
                                                        sort_key=lambda x: len(x.text), repeat=False, shuffle=True,
                                                        device=device)
 
     return TEXT, word_embeddings, train_iter, test_iter
+
+def get_data_loaders(params, TEXT, LABEL):
+    data_source = params.DATASET_NAME
+    output_dataset_file = params.DATA_PATH + "data_{}.pkl".format(data_source)
+
+    if data_source == 'IMDB':
+        try:
+            train_dataset, test_dataset = torch.load(output_dataset_file)
+
+        except IOError:
+            train_data, test_data = datasets.IMDB.splits(TEXT, LABEL)
+            torch.save((train_data, test_data), output_dataset_file)
+
+    elif data_source == 'SST':
+        try:
+            train_dataset, test_dataset = torch.load(output_dataset_file)
+
+        except IOError:
+            train_data, test_data = datasets.IMDB.splits(TEXT, LABEL)
+            torch.save((train_data, test_data), output_dataset_file)
+    else:
+        raise ValueError('Invalid data source ' + data_source)
+    return train_dataset, test_dataset
+
