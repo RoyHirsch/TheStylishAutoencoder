@@ -35,7 +35,6 @@ class Params(object):
     VOCAB_USE_GLOVE = False
     TRAIN_BATCH_SIZE = 16
     TEST_BATCH_SIZE = 16
-    TRAIN_SIZE = 20000 # For debug
     # maximum length of allowed sentence - can be also None
     MAX_LEN = 128
 
@@ -94,7 +93,11 @@ cls_opt = get_std_opt(model_cls, params)
 enc_opt = get_std_opt(model_enc, params)
 dec_opt = get_std_opt(model_dec, params)
 
+model_enc.train()
+model_dec.train()
+model_cls.train()
 early_stop = EarlyStopping(params.PATIENCE)
+
 for epoch in range(Params.N_EPOCHS):
 
   run_epoch(epoch, rm, train_iter, model_enc, enc_opt, model_dec, dec_opt,
