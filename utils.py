@@ -7,7 +7,64 @@ from datetime import timedelta
 import torch
 from torch.nn import functional as F
 
-from params import *
+
+class Loss(object):
+
+    def __init__(self):
+        ''' Running loss metric '''
+        self.num_steps = 0.0
+        self.total_loss = 0.0
+
+    def update(self, loss):
+        ''' Inputs are torch tensors '''
+
+        self.total_loss += loss.item()
+        self.num_steps += 1.0
+
+    def __call__(self):
+        return self.total_loss / self.num_steps
+
+class AccuracyRec(object):
+
+    def __init__(self, pad_ind=1):
+        ''' Running accuracy metric '''
+
+        self.correct = 0.0
+        self.total = 0.0
+        self.pad_ind = pad_ind
+
+    def update(self, outputs, targets):
+        ''' Inputs are torch tensors '''
+        outputs = outputs.detach().cpu().numpy()
+        targets = targets.detach().cpu().numpy()
+
+        relevant_ids = np.where(targets != self.pad_ind)
+        predicted = outputs[relevant_ids].argmax(-1)
+        targets = targets[relevant_ids]
+
+        self.total += len(targets)
+        self.correct += (predicted == targets).sum().item()
+
+    def __call__(self):
+        return self.correct / self.total * 100.0
+
+
+class AccuracyCls(object):
+
+    def __init__(self):
+        ''' Running accuracy for classification '''
+
+        self.correct = 0.0
+        self.total = 0.0
+
+    def update(self, outputs, targets):
+        _, predicted = torch.max(outputs.data, 1)
+        self.total += targets.size(0)
+        self.correct += (predicted == targets).sum().item()
+
+    def __call__(self):
+        return self.correct / self.total * 100.0
+
 
 def preict_labels(preds):
     return preds.detach().argmax(-1)
@@ -15,7 +72,7 @@ def preict_labels(preds):
 def count_parameters(model):
     return sum(p.numel() for p in model.parameters() if p.requires_grad)
 
-def num_tokens(batch, pad_ind=0):
+def num_tokens(batch, pad_ind=1):
     batch = batch.detach().cpu().numpy()
     return len(np.where(batch != pad_ind)[0])
 

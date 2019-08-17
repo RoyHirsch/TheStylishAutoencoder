@@ -286,9 +286,14 @@ class StyleDecoder(nn.Module):
             add_embadding = add_embadding.permute(1, 0).unsqueeze(0)
 
         # Concatenate the style vector at the beginning of the sequence
+        # Add the same to the target for complete supervision
+        # TODO: validate (Roy)
         memory = torch.cat((add_embadding, enc_out), 1)
         memory = memory[:, :-1, :]  # Dump last state
-        dec_out = self.decoder(self.src_embed(tgt), memory, src_mask, tgt_mask)
+
+        tgt_modified = torch.cat((add_embadding, self.src_embed(tgt)), 1)
+        tgt_modified = tgt_modified[:, :-1, :]
+        dec_out = self.decoder(tgt_modified, memory, src_mask, tgt_mask)
         return self.generator(dec_out)
 
 def make_encoder_decoder(src_vocab, tgt_vocab, N=6,

@@ -8,66 +8,31 @@ from torch.autograd import Variable
 import torch.nn as nn
 
 from data import make_masks
-
-class AccuracyRec(object):
-
-    def __init__(self, pad_ind=0):
-        ''' Running accuracy metric '''
-
-        self.correct = 0.0
-        self.total = 0.0
-        self.pad_ind = pad_ind
-
-    def update(self, outputs, targets):
-        ''' Inputs are torch tensors '''
-        outputs = outputs.detach().cpu().numpy()
-        targets = targets.detach().cpu().numpy()
-
-        relevant_ids = np.where(targets != self.pad_ind)
-        predicted = outputs[relevant_ids].argmax(-1)
-        targets = targets[relevant_ids]
-
-        self.total += len(targets)
-        self.correct += (predicted == targets).sum().item()
-
-    def __call__(self):
-        return self.correct / self.total * 100.0
-
-
-class AccuracyCls(object):
-
-    def __init__(self):
-        ''' Running accuracy for classification '''
-
-        self.correct = 0.0
-        self.total = 0.0
-
-    def update(self, outputs, targets):
-        _, predicted = torch.max(outputs.data, 1)
-        self.total += targets.size(0)
-        self.correct += (predicted == targets).sum().item()
-
-    def __call__(self):
-        return self.correct / self.total * 100.0
-
+from utils import AccuracyCls, AccuracyRec, Loss
 
 def evaluate(epoch, data_iter, model_enc, model_dec,
              model_cls, cls_criteria, seq2seq_criteria,
-             ent_criteria, device):
+             ent_criteria, params):
     ''' Evaluate performances over test/validation dataloader '''
+
+    device = params.device
 
     model_cls.eval()
     model_enc.eval()
     model_dec.eval()
 
-    cls_running_loss = 0.0
-    rec_running_loss = 0.0
-    ent_running_loss = 0.0
+    cls_running_loss = Loss()
+    rec_running_loss = Loss()
+    ent_running_loss = Loss()
 
     rec_acc = AccuracyRec()
     cls_acc = AccuracyCls()
+
     with torch.no_grad():
         for i, batch in enumerate(data_iter):
+            if params.TEST_SIZE and i == params.TEST_MAX_BATCH_SIZE:
+                break
+
             # Prepare batch
             src, labels = batch.text, batch.label
             src_mask, trg_mask = make_masks(src, src, device)
@@ -81,27 +46,27 @@ def evaluate(epoch, data_iter, model_enc, model_dec,
             encode_out = model_enc(src, src_mask)
             cls_preds = model_cls(encode_out)
             cls_loss = cls_criteria(cls_preds, labels)
-            cls_running_loss += cls_loss.item()
+            cls_running_loss.update(cls_loss.item())
 
             # Rec loss
             preds = model_dec(encode_out, labels, src_mask, src, trg_mask)
             rec_loss = seq2seq_criteria(preds.contiguous().view(-1, preds.size(-1)),
                                         src.contiguous().view(-1))
-            rec_running_loss += rec_loss.item()
+            rec_running_loss.update(rec_loss.item())
 
             # Entropy loss
             cls_preds = model_cls(encode_out)
             ent_loss = ent_criteria(cls_preds)
-            ent_running_loss += ent_loss.item()
+            ent_running_loss.update(ent_loss.item())
 
             # Accuracy
             rec_acc.update(preds, src)
             cls_acc.update(cls_preds, labels)
 
-    logging.info("eval-e-{}: loss cls: {:.3f}, loss rec: {:.3f}, loss ent: {:.3f}".format(epoch, cls_running_loss / i,
-                                                                                   rec_running_loss / i,
-                                                                                   ent_running_loss / i))
-    logging.info("eval-e-{}: acc cls: {:.3f}, acc rec: {:.3f}".format(epoch, rec_acc(), cls_acc()))
+    logging.info("Eval-e-{}: loss cls: {:.3f}, loss rec: {:.3f}, loss ent: {:.3f}".format(epoch, cls_running_loss(),
+                                                                                   rec_running_loss(),
+                                                                                   ent_running_loss()))
+    logging.info("Eval-e-{}: acc cls: {:.3f}, acc rec: {:.3f}".format(epoch, cls_acc(), rec_acc()))
     # TODO - Roy - what metric to report ?
     return rec_acc
 

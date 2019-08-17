@@ -113,7 +113,7 @@ class ResourcesManager:
     def get_models(self):
         return self.models
 
-    def on_epoch_end(self, epoch):
+    def save_models_on_epoch_end(self, epoch):
         epoch_str = '_e{}_'.format(epoch)
         for key, val in self.path_ends.items():
             self.save_model(key, save_path=os.path.join(self.save_path, self.exp_name + epoch_str + val + self.suffix), verbose=False)
@@ -137,7 +137,7 @@ class EntropyLoss(nn.Module):
 class LabelSmoothing(nn.Module):
     "Implement label smoothing."
 
-    def __init__(self, size, padding_idx=0, smoothing=0.0):
+    def __init__(self, size, padding_idx=1, smoothing=0.0):
         super(LabelSmoothing, self).__init__()
         self.criterion = nn.KLDivLoss(size_average=False)
         self.padding_idx = padding_idx
@@ -196,6 +196,11 @@ def train_transformer_step(model_cls, model_enc, model_dec, seq2seq_criteria,
 
     encode_out = model_enc(src, src_mask)
     preds = model_dec(encode_out, labels, src_mask, src, trg_mask)
+
+    # Ignore the style embedding locations preds.size() = [batch_size, max_len, vocab_size]
+    preds = preds[:, 1:, :]
+    # Ignore the last token src.size() = [batch_size, max_len]
+    src = src[:, :-1]
     rec_loss = seq2seq_criteria(preds.contiguous().view(-1, preds.size(-1)),
                                 src.contiguous().view(-1))
 
@@ -217,15 +222,16 @@ def train_transformer_step(model_cls, model_enc, model_dec, seq2seq_criteria,
 
     return loss_val, rec_loss.item()
 
-def run_epoch(epoch, resource_manager, data_iter, model_enc, opt_enc, model_dec, opt_dec,
+def run_epoch(epoch, data_iter, model_enc, opt_enc, model_dec, opt_dec,
               model_cls, opt_cls, cls_criteria, seq2seq_criteria,
-              ent_criteria, device, params):
+              ent_criteria, params):
 
     trans_steps = params.TRANS_STEPS
     cls_steps = params.CLS_STEPS
     rec_lambda = params.REC_LAMBDA
     print_interval = params.PRINT_INTERVAL
     verbose = params.VERBOSE
+    device = params.device
 
     if verbose:
         assert not (trans_steps % print_interval) and not (cls_steps % print_interval)
@@ -271,3 +277,4 @@ def run_epoch(epoch, resource_manager, data_iter, model_enc, opt_enc, model_dec,
             if verbose:
                 logging.info("e-{},s-{}: Training {} loss {}".format(epoch, step, setting, running_loss / print_interval))
             running_loss = 0.0
+

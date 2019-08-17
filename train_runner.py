@@ -29,6 +29,8 @@ class Params(object):
 
     # Data
     DATASET_NAME = 'IMDB'
+    # Maximal number of batches for test model
+    TEST_MAX_BATCH_SIZE = 500
     # Min freq for word in dataset to include in vocab
     VOCAB_MIN_FREQ = 5
     # Whether to use Glove embadding - if TRUE set H_DIM to 300
@@ -85,7 +87,8 @@ model_cls = models["cls"]
 
 ### Init losses ###
 cls_criteria = nn.CrossEntropyLoss()
-seq2seq_criteria = LabelSmoothing(size=vocab_size, padding_idx=0)
+# seq2seq_criteria = LabelSmoothing(size=vocab_size, padding_idx=1)
+seq2seq_criteria = nn.CrossEntropyLoss(reduction='mean', ignore_index=1)
 ent_criteria = EntropyLoss()
 
 ### Init optimizers ###
@@ -99,15 +102,16 @@ model_cls.train()
 early_stop = EarlyStopping(params.PATIENCE)
 
 for epoch in range(Params.N_EPOCHS):
+  logging.info('Epoch {}:'.format(epoch))
 
-  run_epoch(epoch, rm, train_iter, model_enc, enc_opt, model_dec, dec_opt,
+  run_epoch(epoch, train_iter, model_enc, enc_opt, model_dec, dec_opt,
               model_cls, cls_opt, cls_criteria, seq2seq_criteria,
-              ent_criteria, params.device, params=params)
+              ent_criteria, params)
 
-  rm.on_epoch_end(epoch)
+  rm.save_models_on_epoch_end(epoch)
   test_acc = evaluate(epoch, test_iter, model_enc, model_dec,
              model_cls, cls_criteria, seq2seq_criteria,
-             ent_criteria, params.device)
+             ent_criteria, params)
 
   test_random_samples(test_iter, TEXT, model_enc, model_dec, model_cls, params.device,
                       decode_func=greedy_decode_sent, num_samples=2, transfer_style=True)

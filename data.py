@@ -15,7 +15,8 @@ def subsequent_mask(size):
     return torch.from_numpy(subsequent_mask) == 0
 
 
-def make_masks(src, tgt, device, pad=0):
+def make_masks(src, tgt, device, pad=1):
+    ''' Pad id in TEXT.vocab.stoi['<pad>'] = 1'''
     tgt_mask = (tgt != pad).unsqueeze(-2)
     tgt_mask = tgt_mask & subsequent_mask(tgt.size(-1)).type_as(tgt_mask.data)
     tgt_mask = tgt_mask.to(device)
@@ -78,7 +79,8 @@ def load_dataset(params, device):
                                                        batch_sizes=(params.TRAIN_BATCH_SIZE, params.TRAIN_BATCH_SIZE),
                                                        sort_key=lambda x: len(x.text), repeat=False, shuffle=True,
                                                        device=device)
-
+    # Disable shuffle
+    test_iter.shuffle = False
     return TEXT, word_embeddings, train_iter, test_iter
 
 def get_data_loaders(params, TEXT, LABEL):

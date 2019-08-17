@@ -23,9 +23,6 @@ class Descriminator(nn.Module):
         # Fully-Connected Layer
         self.fc = nn.Linear(hidden_size * 4, output_size)
 
-        # Softmax non-linearity
-        self.softmax = nn.Softmax()
-
     def apply_attention(self, rnn_output, final_hidden_state):
         '''
         Apply Attention on RNN output
