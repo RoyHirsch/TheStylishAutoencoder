@@ -7,3 +7,6 @@
 *.feat
 data/aclImdb/imdb.vocab
 data/aclImdb/README
+*.pkl
+*.rar
+*.log

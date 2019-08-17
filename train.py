@@ -2,11 +2,12 @@ import torch
 from torch.nn import functional as F
 from torch.autograd import Variable
 import torch.nn as nn
+import logging
+import os
 
 from data import make_masks
 from transformer_model import *
 from classifier_model import *
-from params import *
 
 class NoamOpt:
     "Optim wrapper that implements rate."
@@ -40,43 +41,47 @@ class NoamOpt:
         self.optimizer.zero_grad()
 
 
-def get_std_opt(model):
-    return NoamOpt(model.src_embed[0].d_model, 2, OPT_WARMUP_FACTOR,
-                   torch.optim.Adam(model.parameters(), lr=LR, betas=(0.9, 0.98), eps=1e-9))
+def get_std_opt(model, params):
+    return NoamOpt(params.H_DIM, 2, params.OPT_WARMUP_FACTOR,
+                   torch.optim.Adam(model.parameters(), lr=params.LR, betas=(0.9, 0.98), eps=1e-9))
 
 
 class ResourcesManager:
-    def __init__(self, vocab_size, save_path, experiment_name, device, load_path=False,
+    def __init__(self, vocab_size, experiment_name, params, load_path=None,
                  enc_name="_enc", dec_name="_dec", cls_name="_cls"):
         self.exp_name = experiment_name
+        self.suffix = '.pth'
         self.path_ends = {
             "enc": enc_name,
             "dec": dec_name,
             "cls": cls_name
         }
-        self.save_paths = self.get_paths_dict(save_path)
-        self.init_models(vocab_size, device)
+
+        exp_folder = os.path.join(params.DATA_PATH, 'exp_' + str(params.EXP_NUM))
+
+        self.save_path = exp_folder
+        self.save_paths = self.get_paths_dict(exp_folder)
+        self.init_models(vocab_size, params)
         self.load_path = load_path
         if load_path:
             self.load_models(load_path)
 
     def get_paths_dict(self, basic_path):
         return {
-            key: basic_path + self.exp_name + val + ".pkl" for (key, val) in self.path_ends.items()
+            key: basic_path + self.exp_name + val + self.suffix for (key, val) in self.path_ends.items()
         }
 
-    def init_models(self, vocab_size, device):
+    def init_models(self, vocab_size, params):
         model_enc, model_dec = make_encoder_decoder(src_vocab=vocab_size, tgt_vocab=vocab_size,
-                                                    N=N_LAYERS, d_model=H_DIM, d_ff=FC_DIM,
-                                                    h=N_ATTN_HEAD, n_styles=N_STYLES, dropout=DO_RATE)
-        model_cls = Descriminator(batch_size=TRAIN_BATCH_SIZE, output_size=N_STYLES,
-                                  hidden_size=H_DIM, vocab_size=vocab_size,
-                                  embedding_length=H_DIM, drop_rate=DO_RATE_CLS)
+                                                    N=params.N_LAYERS, d_model=params.H_DIM, d_ff=params.FC_DIM,
+                                                    h=params.N_ATTN_HEAD, n_styles=params.N_STYLES, dropout=params.DO_RATE)
+        model_cls = Descriminator(output_size=params.N_STYLES, hidden_size=params.H_DIM,
+                                  embedding_length=params.H_DIM, drop_rate=params.DO_RATE_CLS)
 
         self.models = {
-            "enc": model_enc.to(device),
-            "dec": model_dec.to(device),
-            "cls": model_cls.to(device)
+            "enc": model_enc.to(params.device),
+            "dec": model_dec.to(params.device),
+            "cls": model_cls.to(params.device)
         }
 
     def load_models(self, load_path=None):
@@ -89,7 +94,7 @@ class ResourcesManager:
             try:
                 self.models[key].load_state_dict(torch.load(path))
             except IOError:
-                print("{}'s state not found in {}".format(key, path))
+                logging.info("{}'s state not found in {}".format(key, path))
 
     def save_model(self, key, save_path=None, verbose=False):
         try:
@@ -101,12 +106,17 @@ class ResourcesManager:
         try:
             torch.save(model.state_dict(), save_path)
             if verbose:
-                print("Saved {} model to {}".format(key, save_path))
+                logging.info("Saved {} model to {}".format(key, save_path))
         except IOError:
             raise ValueError("couldn't save {} model's state, {} doesn't exist".format(key, save_path))
 
     def get_models(self):
         return self.models
+
+    def save_models_on_epoch_end(self, epoch):
+        epoch_str = '_e{}_'.format(epoch)
+        for key, val in self.path_ends.items():
+            self.save_model(key, save_path=os.path.join(self.save_path, self.exp_name + epoch_str + val + self.suffix), verbose=False)
 
 
 """
@@ -127,7 +137,7 @@ class EntropyLoss(nn.Module):
 class LabelSmoothing(nn.Module):
     "Implement label smoothing."
 
-    def __init__(self, size, padding_idx=0, smoothing=0.0):
+    def __init__(self, size, padding_idx=1, smoothing=0.0):
         super(LabelSmoothing, self).__init__()
         self.criterion = nn.KLDivLoss(size_average=False)
         self.padding_idx = padding_idx
@@ -165,7 +175,6 @@ class Seq2SeqSimpleLossCompute:
 Training Functions
 """
 
-
 def train_cls_step(model_enc, model_cls, cls_opt, cls_criteria,
                    src, src_mask, labels):
     with torch.no_grad():
@@ -173,13 +182,12 @@ def train_cls_step(model_enc, model_cls, cls_opt, cls_criteria,
     cls_preds = model_cls(encode_out)
 
     cls_opt.zero_grad()
-    cls_loss = cls_criteria(cls_preds[0], labels)
+    cls_loss = cls_criteria(cls_preds, labels)
     loss_val = cls_loss.item()
     cls_loss.backward()
     cls_opt.step()
 
     return loss_val
-
 
 def train_transformer_step(model_cls, model_enc, model_dec, seq2seq_criteria,
                            ent_criteria, opt_enc, opt_dec, rec_lambda,
@@ -188,6 +196,11 @@ def train_transformer_step(model_cls, model_enc, model_dec, seq2seq_criteria,
 
     encode_out = model_enc(src, src_mask)
     preds = model_dec(encode_out, labels, src_mask, src, trg_mask)
+
+    # Ignore the style embedding locations preds.size() = [batch_size, max_len, vocab_size]
+    preds = preds[:, 1:, :]
+    # Ignore the last token src.size() = [batch_size, max_len]
+    src = src[:, :-1]
     rec_loss = seq2seq_criteria(preds.contiguous().view(-1, preds.size(-1)),
                                 src.contiguous().view(-1))
 
@@ -199,7 +212,7 @@ def train_transformer_step(model_cls, model_enc, model_dec, seq2seq_criteria,
     opt_enc.zero_grad()
     with torch.no_grad():
         cls_preds = model_cls(encode_out)
-    ent_loss = ent_criteria(cls_preds[0])
+    ent_loss = ent_criteria(cls_preds)
     enc_loss = (rec_lambda * rec_loss) + (ent_lambda * ent_loss)
 
     # optimizer encoder
@@ -209,12 +222,17 @@ def train_transformer_step(model_cls, model_enc, model_dec, seq2seq_criteria,
 
     return loss_val, rec_loss.item()
 
-
-def run_epoch(epoch, resource_manager, data_iter, model_enc, opt_enc, model_dec, opt_dec,
+def run_epoch(epoch, data_iter, model_enc, opt_enc, model_dec, opt_dec,
               model_cls, opt_cls, cls_criteria, seq2seq_criteria,
-              ent_criteria, device, trans_steps, cls_steps,
-              enc_metric_val=10 ** 9, dec_metric_val=10 ** 9, cls_metric_val=10 ** 9,
-              rec_lambda=0.5, print_interval=100, verbose=VERBOSE):
+              ent_criteria, params):
+
+    trans_steps = params.TRANS_STEPS
+    cls_steps = params.CLS_STEPS
+    rec_lambda = params.REC_LAMBDA
+    print_interval = params.PRINT_INTERVAL
+    verbose = params.VERBOSE
+    device = params.device
+
     if verbose:
         assert not (trans_steps % print_interval) and not (cls_steps % print_interval)
     running_loss = 0.0
@@ -222,7 +240,7 @@ def run_epoch(epoch, resource_manager, data_iter, model_enc, opt_enc, model_dec,
     for step, batch in enumerate(data_iter):
         # prepare batch
         i = step % (trans_steps + cls_steps)
-        src, labels = batch
+        src, labels = batch.text, batch.label
         src_mask, trg_mask = make_masks(src, src, device)
 
         src = src.to(device)
@@ -232,7 +250,7 @@ def run_epoch(epoch, resource_manager, data_iter, model_enc, opt_enc, model_dec,
 
         if i >= trans_steps:  # training the classifier
             if i == trans_steps:  # switch from trans_train setting to cls_train setting
-                print("Training CLS")
+                logging.info("Training CLS")
                 setting = "cls"
                 model_cls.train()
                 model_enc.eval()
@@ -243,7 +261,7 @@ def run_epoch(epoch, resource_manager, data_iter, model_enc, opt_enc, model_dec,
 
         else:  # training the tranformer
             if i == 0:  # switch from cls_train setting to trans_train setting
-                print("Training TRANS")
+                logging.info("Training TRANS")
                 setting = "trans"
                 model_cls.eval()
                 model_enc.train()
@@ -257,14 +275,6 @@ def run_epoch(epoch, resource_manager, data_iter, model_enc, opt_enc, model_dec,
 
         if (step % print_interval == print_interval - 1):
             if verbose:
-                print("e-{},s-{}: Training {} loss {}".format(epoch, step, setting, running_loss / print_interval))
-            if setting == "cls":
-                # if running_loss < cls_metric_val:
-                # cls_metric_val = running_loss
-                resource_manager.save_model("cls", verbose=VERBOSE)
-            else:  # trans
-                # if running_loss < enc_metric_val:
-                #   enc_metric_val = running_loss
-                resource_manager.save_model("enc", verbose=VERBOSE)
-                resource_manager.save_model("dec", verbose=VERBOSE)
+                logging.info("e-{},s-{}: Training {} loss {}".format(epoch, step, setting, running_loss / print_interval))
             running_loss = 0.0
+

@@ -6,8 +6,6 @@ from torch.nn import functional as F
 from torch.autograd import Variable
 import torch.nn as nn
 
-from params import *
-
 class EncoderDecoder(nn.Module):
     """
     A standard Encoder-Decoder architecture. Base for this and many
@@ -40,7 +38,7 @@ class EncoderDecoder(nn.Module):
 
     def decode_with_style(self, encode_out, style_preds, src_mask, tgt, tgt_mask):
         ''' Add style emb to memory and decode '''
-        memory = torch.cat((encode_out, model_trans.style_embed(style_preds).unsqueeze(1)), 1)
+        memory = torch.cat((encode_out, self.style_embed(style_preds).unsqueeze(1)), 1)
         # Dump last state
         memory = memory[:, :-1, :]
         return self.decoder(self.tgt_embed(tgt), memory, src_mask, tgt_mask)
@@ -134,8 +132,7 @@ class PositionalEncoding(nn.Module):
         self.register_buffer('pe', pe)
 
     def forward(self, x):
-        x = x + Variable(self.pe[:, :x.size(1)],
-                         requires_grad=False)
+        x = x + Variable(self.pe[:, :x.size(1)], requires_grad=False)
         return self.dropout(x)
 
 
@@ -280,11 +277,24 @@ class StyleDecoder(nn.Module):
 
     def forward(self, enc_out, style_preds, src_mask, tgt, tgt_mask):
         "Take in and process masked src and target sequences."
-        memory = torch.cat((enc_out, self.style_embed(style_preds).unsqueeze(1)), 1)
-        memory = memory[:, :-1, :]  # Dump last state
-        dec_out = self.decoder(self.src_embed(tgt), memory, src_mask, tgt_mask)
-        return self.generator(dec_out)
 
+        add_embadding = self.style_embed(style_preds).unsqueeze(1)
+        if add_embadding.ndimension() == 1:
+            add_embadding = add_embadding.unsqueeze(0).unsqueeze(1)
+
+        elif add_embadding.ndimension() == 2:
+            add_embadding = add_embadding.permute(1, 0).unsqueeze(0)
+
+        # Concatenate the style vector at the beginning of the sequence
+        # Add the same to the target for complete supervision
+        # TODO: validate (Roy)
+        memory = torch.cat((add_embadding, enc_out), 1)
+        memory = memory[:, :-1, :]  # Dump last state
+
+        tgt_modified = torch.cat((add_embadding, self.src_embed(tgt)), 1)
+        tgt_modified = tgt_modified[:, :-1, :]
+        dec_out = self.decoder(tgt_modified, memory, src_mask, tgt_mask)
+        return self.generator(dec_out)
 
 def make_encoder_decoder(src_vocab, tgt_vocab, N=6,
                          d_model=512, d_ff=2048, h=8, n_styles=2, dropout=0.1):
@@ -316,3 +326,10 @@ def make_encoder_decoder(src_vocab, tgt_vocab, N=6,
         if p.dim() > 1:
             nn.init.xavier_uniform_(p)
     return encoder, decoder
+
+def load_pretrained_embedding_to_encoder(enc_model, embedding):
+    ''' Helper function to modify encoder model embedding with pre-trained
+        embedding like Glove. '''
+    enc_model.src_embed[0].lut.weight.data.copy_(embedding)
+    print('Loaded pre-calculated Glove embedding')
+    return enc_model
