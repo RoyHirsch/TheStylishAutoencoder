@@ -8,6 +8,7 @@ import os
 from data import make_masks
 from transformer_model import *
 from classifier_model import *
+from utils import AccuracyCls, AccuracyRec, Loss
 
 class NoamOpt:
     "Optim wrapper that implements rate."
@@ -47,9 +48,15 @@ def get_std_opt(model, params):
 
 
 class ResourcesManager:
-    def __init__(self, vocab_size, experiment_name, params, load_path=None,
+    def __init__(self, model_enc, model_dec, model_cls, params,
                  enc_name="_enc", dec_name="_dec", cls_name="_cls"):
-        self.exp_name = experiment_name
+        self.models = {
+            "enc": model_enc.to(params.device),
+            "dec": model_dec.to(params.device),
+            "cls": model_cls.to(params.device)
+        }
+
+        self.exp_name = params.EXP_NAME
         self.suffix = '.pth'
         self.path_ends = {
             "enc": enc_name,
@@ -57,31 +64,17 @@ class ResourcesManager:
             "cls": cls_name
         }
 
-        exp_folder = os.path.join(params.DATA_PATH, 'exp_' + str(params.EXP_NUM))
+        exp_folder = os.path.join(params.MODELS_PATH, params.EXP_NAME)
 
         self.save_path = exp_folder
         self.save_paths = self.get_paths_dict(exp_folder)
-        self.init_models(vocab_size, params)
-        self.load_path = load_path
-        if load_path:
-            self.load_models(load_path)
+        self.load_path = params.MODELS_LOAD_PATH
+        if self.load_path:
+            self.load_path
 
     def get_paths_dict(self, basic_path):
         return {
-            key: basic_path + self.exp_name + val + self.suffix for (key, val) in self.path_ends.items()
-        }
-
-    def init_models(self, vocab_size, params):
-        model_enc, model_dec = make_encoder_decoder(src_vocab=vocab_size, tgt_vocab=vocab_size,
-                                                    N=params.N_LAYERS, d_model=params.H_DIM, d_ff=params.FC_DIM,
-                                                    h=params.N_ATTN_HEAD, n_styles=params.N_STYLES, dropout=params.DO_RATE)
-        model_cls = Descriminator(output_size=params.N_STYLES, hidden_size=params.H_DIM,
-                                  embedding_length=params.H_DIM, drop_rate=params.DO_RATE_CLS)
-
-        self.models = {
-            "enc": model_enc.to(params.device),
-            "dec": model_dec.to(params.device),
-            "cls": model_cls.to(params.device)
+            key: os.path.join(basic_path, val + self.suffix) for (key, val) in self.path_ends.items()
         }
 
     def load_models(self, load_path=None):
@@ -129,8 +122,10 @@ class EntropyLoss(nn.Module):
         super(EntropyLoss, self).__init__()
 
     def forward(self, x):
-        b = F.softmax(x, dim=1) * F.log_softmax(x, dim=1)
-        b = b.sum()
+        x = F.softmax(x, dim=1)
+        b = x * x.log()
+        b = b.sum(dim=1)
+        b = b.mean()
         return b
 
 
@@ -175,23 +170,34 @@ class Seq2SeqSimpleLossCompute:
 Training Functions
 """
 
+
+def init_models(vocab_size, params):
+    model_enc, model_dec = make_encoder_decoder(src_vocab=vocab_size, tgt_vocab=vocab_size,
+                                                N=params.N_LAYERS, d_model=params.H_DIM, d_ff=params.FC_DIM,
+                                                h=params.N_ATTN_HEAD, n_styles=params.N_STYLES, dropout=params.DO_RATE)
+    model_cls = Descriminator(output_size=params.N_STYLES, hidden_size=params.H_DIM,
+                              embedding_length=params.H_DIM, drop_rate=params.DO_RATE_CLS)
+    return model_enc, model_dec, model_cls
+
+
 def train_cls_step(model_enc, model_cls, cls_opt, cls_criteria,
-                   src, src_mask, labels):
+                   src, src_mask, labels, cls_running_loss, cls_acc):
     with torch.no_grad():
         encode_out = model_enc(src, src_mask)
     cls_preds = model_cls(encode_out)
 
     cls_opt.zero_grad()
-    cls_loss = cls_criteria(cls_preds, labels)
-    loss_val = cls_loss.item()
-    cls_loss.backward()
+    loss = cls_criteria(cls_preds, labels)
+    cls_acc.update(cls_preds, labels)
+    cls_running_loss.update(loss)
+    loss.backward()
     cls_opt.step()
 
-    return loss_val
 
 def train_transformer_step(model_cls, model_enc, model_dec, seq2seq_criteria,
                            ent_criteria, opt_enc, opt_dec, rec_lambda,
-                           src, src_mask, labels, trg_mask):
+                           src, src_mask, labels, trg_mask, rec_running_loss,
+                           ent_running_loss, rec_acc):
     ent_lambda = 1 - rec_lambda
 
     encode_out = model_enc(src, src_mask)
@@ -199,10 +205,13 @@ def train_transformer_step(model_cls, model_enc, model_dec, seq2seq_criteria,
 
     # Ignore the style embedding locations preds.size() = [batch_size, max_len, vocab_size]
     preds = preds[:, 1:, :]
+    preds = preds.contiguous().view(-1, preds.size(-1))
     # Ignore the last token src.size() = [batch_size, max_len]
     src = src[:, :-1]
-    rec_loss = seq2seq_criteria(preds.contiguous().view(-1, preds.size(-1)),
-                                src.contiguous().view(-1))
+    src = src.contiguous().view(-1)
+    rec_loss = seq2seq_criteria(preds, src)
+    rec_running_loss.update(rec_loss)
+    rec_acc.update(preds, src)
 
     # optimize decoder
     opt_dec.zero_grad()
@@ -213,14 +222,13 @@ def train_transformer_step(model_cls, model_enc, model_dec, seq2seq_criteria,
     with torch.no_grad():
         cls_preds = model_cls(encode_out)
     ent_loss = ent_criteria(cls_preds)
+    ent_running_loss.update(ent_loss)
     enc_loss = (rec_lambda * rec_loss) + (ent_lambda * ent_loss)
 
     # optimizer encoder
-    loss_val = enc_loss.item()
     enc_loss.backward()
     opt_enc.step()
 
-    return loss_val, rec_loss.item()
 
 def run_epoch(epoch, data_iter, model_enc, opt_enc, model_dec, opt_dec,
               model_cls, opt_cls, cls_criteria, seq2seq_criteria,
@@ -235,7 +243,13 @@ def run_epoch(epoch, data_iter, model_enc, opt_enc, model_dec, opt_dec,
 
     if verbose:
         assert not (trans_steps % print_interval) and not (cls_steps % print_interval)
-    running_loss = 0.0
+
+    cls_running_loss = Loss()
+    rec_running_loss = Loss()
+    ent_running_loss = Loss()
+
+    rec_acc = AccuracyRec()
+    cls_acc = AccuracyCls()
 
     for step, batch in enumerate(data_iter):
         # prepare batch
@@ -248,33 +262,45 @@ def run_epoch(epoch, data_iter, model_enc, opt_enc, model_dec, opt_dec,
         trg_mask = trg_mask.to(device)
         labels = labels.to(device)
 
-        if i >= trans_steps:  # training the classifier
-            if i == trans_steps:  # switch from trans_train setting to cls_train setting
-                logging.info("Training CLS")
-                setting = "cls"
-                model_cls.train()
-                model_enc.eval()
-
-            running_loss += train_cls_step(model_enc=model_enc, model_cls=model_cls, cls_opt=opt_cls,
-                                           cls_criteria=cls_criteria, src=src, src_mask=src_mask,
-                                           labels=labels)
-
-        else:  # training the tranformer
+        if i < trans_steps: #training the transformer
             if i == 0:  # switch from cls_train setting to trans_train setting
                 logging.info("Training TRANS")
-                setting = "trans"
                 model_cls.eval()
                 model_enc.train()
 
-            enc_loss, dec_loss = train_transformer_step(model_cls, model_enc,
-                                                        model_dec, seq2seq_criteria,
-                                                        ent_criteria, opt_enc,
-                                                        opt_dec, rec_lambda, src,
-                                                        src_mask, labels, trg_mask)
-            running_loss += enc_loss
+            train_transformer_step(model_cls=model_cls, model_enc=model_enc,
+                                                        model_dec=model_dec, seq2seq_criteria=seq2seq_criteria,
+                                                        ent_criteria=ent_criteria, opt_enc=opt_enc,
+                                                        opt_dec=opt_dec, rec_lambda=rec_lambda, src=src,
+                                                        src_mask=src_mask, labels=labels, trg_mask=trg_mask,
+                                                        ent_running_loss=ent_running_loss,
+                                                        rec_running_loss=rec_running_loss, rec_acc=rec_acc)
+            if step % print_interval == print_interval - 1:
+                if verbose:
+                    logging.info(
+                        "e-{},s-{}: Training transformer ent_loss {}, rec_loss {}, rec_acc {}".format(epoch, step,
+                                                                                                      ent_running_loss(),
+                                                                                                      rec_running_loss(),
+                                                                                                      rec_acc()))
+                ent_running_loss.reset()
+                rec_running_loss.reset()
+                rec_acc.reset()
 
-        if (step % print_interval == print_interval - 1):
-            if verbose:
-                logging.info("e-{},s-{}: Training {} loss {}".format(epoch, step, setting, running_loss / print_interval))
-            running_loss = 0.0
+        else:  # training the classifier
+            if i == trans_steps:  # switch from trans_train setting to cls_train setting
+                logging.info("Training CLS")
+                model_cls.train()
+                model_enc.eval()
+
+            train_cls_step(model_enc=model_enc, model_cls=model_cls, cls_opt=opt_cls,
+                                           cls_criteria=cls_criteria, src=src, src_mask=src_mask,
+                                           labels=labels, cls_acc=cls_acc, cls_running_loss=cls_running_loss)
+
+            if step % print_interval == print_interval - 1:
+                if verbose:
+                    logging.info(
+                        "e-{},s-{}: Training cls loss {} acc {}".format(epoch, step, cls_running_loss(),
+                                                                        cls_acc()))
+                cls_running_loss.reset()
+                cls_acc.reset()
 

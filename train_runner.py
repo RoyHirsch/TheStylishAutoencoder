@@ -19,13 +19,15 @@ class Params(object):
     # Free text to describe the experiment
     COMMENT = ''
     VERBOSE = True
-    EXP_NUM = 0
+    EXP_NAME = "basic_exp_0"
     # DATA_PATH = "/content/drive/My Drive/NLP/final/"
     # MODELS_PATH = "/content/drive/My Drive/NLP/final/"
     PRINT_INTERVAL = 100
 
     # TODO: for local use
     DATA_PATH = MODELS_PATH = os.path.abspath(__file__+'/../')
+    MODELS_LOAD_PATH = None
+
 
     # Data
     DATASET_NAME = 'IMDB'
@@ -59,6 +61,7 @@ class Params(object):
     REC_LAMBDA = 0.5
     CLS_STEPS = 500
     TRANS_STEPS = 500
+    MAX_GRAD = 1.0
 
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
@@ -76,7 +79,8 @@ logging.info('Train dataset len: {} Test dataset len: {}'.format(len(train_iter.
 ### Init models ###
 
 vocab_size = len(TEXT.vocab)
-rm = ResourcesManager(vocab_size, "basic_exp_{}".format(params.EXP_NUM), params, load_path=None)
+model_enc, model_dec, model_cls = init_models(vocab_size, params)
+rm = ResourcesManager(model_enc, model_dec, model_cls, params=params)
 models = rm.get_models()
 model_enc = models["enc"]
 model_dec = models["dec"]
@@ -87,9 +91,14 @@ model_cls = models["cls"]
 
 ### Init losses ###
 cls_criteria = nn.CrossEntropyLoss()
+cls_criteria = cls_criteria.to(params.device)
+
 # seq2seq_criteria = LabelSmoothing(size=vocab_size, padding_idx=1)
 seq2seq_criteria = nn.CrossEntropyLoss(reduction='mean', ignore_index=1)
+seq2seq_criteria = seq2seq_criteria.to(params.device)
+
 ent_criteria = EntropyLoss()
+ent_criteria = ent_criteria.to(params.device)
 
 ### Init optimizers ###
 cls_opt = get_std_opt(model_cls, params)
