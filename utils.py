@@ -132,11 +132,11 @@ class LogFormatter():
 
 def create_logger(params):
     # Create output folder
-    exp_name = 'exp_' + str(params.EXP_NUM)
+    exp_name = params.EXP_NAME
     root = params.DATA_PATH
 
     exp_folder = os.path.join(root, exp_name)
-    filepath = os.path.join(root, exp_name, 'main_exp_{}.log'.format(params.EXP_NUM))
+    filepath = os.path.join(root, exp_name, '{}.log'.format(params.EXP_NAME))
 
     if not os.path.exists(exp_folder):
         os.makedirs(exp_folder)
