@@ -6,6 +6,8 @@ from torchtext import data
 from torchtext import datasets
 from torchtext.vocab import Vectors, GloVe
 from spacy.lang.en import English
+import os
+import dill
 
 
 def subsequent_mask(size):
@@ -29,7 +31,7 @@ def make_masks(src, tgt, device, pad=1):
     src_mask = (src != pad).unsqueeze(-2)
     return src_mask, tgt_mask
 
-def load_dataset(params, device):
+def load_dataset(params, device, load_from_memory=False):
     """
     tokenizer : Breaks sentences into a list of words. If sequential=False, no tokenization is applied
     Field : A class that stores information about the way of preprocessing
@@ -58,11 +60,14 @@ def load_dataset(params, device):
     data_source = params.DATASET_NAME
     logging.info('Start loading dataset {}:'.format(data_source))
 
-    if data_source == 'IMDB':
-        train_data, test_data = datasets.IMDB.splits(TEXT, LABEL)
+    if load_from_memory:
+        train_data, test_data = get_data_loaders(params=params, TEXT=TEXT, LABEL=LABEL)
+    else:
+        if data_source == 'IMDB':
+            train_data, test_data = datasets.IMDB.splits(TEXT, LABEL)
 
-    elif data_source == 'SST':
-        train_data, test_data = datasets.SST.splits(TEXT, LABEL)
+        elif data_source == 'SST':
+            train_data, test_data = datasets.SST.splits(TEXT, LABEL)
 
     if params.VOCAB_USE_GLOVE:
         TEXT.build_vocab(train_data, test_data, min_freq=params.VOCAB_MIN_FREQ, vectors=GloVe(name='6B', dim=300))
@@ -83,26 +88,25 @@ def load_dataset(params, device):
     test_iter.shuffle = False
     return TEXT, word_embeddings, train_iter, test_iter
 
+
 def get_data_loaders(params, TEXT, LABEL):
     data_source = params.DATASET_NAME
-    output_dataset_file = params.DATA_PATH + "data_{}.pkl".format(data_source)
+    output_dataset_file = os.path.join(params.DATA_PATH, "data_{}.pkl".format(data_source))
 
     if data_source == 'IMDB':
-        try:
-            train_dataset, test_dataset = torch.load(output_dataset_file)
-
-        except IOError:
-            train_data, test_data = datasets.IMDB.splits(TEXT, LABEL)
-            torch.save((train_data, test_data), output_dataset_file)
-
+        dataset = datasets.IMDB
     elif data_source == 'SST':
-        try:
-            train_dataset, test_dataset = torch.load(output_dataset_file)
-
-        except IOError:
-            train_data, test_data = datasets.IMDB.splits(TEXT, LABEL)
-            torch.save((train_data, test_data), output_dataset_file)
+        dataset = datasets.SST
     else:
         raise ValueError('Invalid data source ' + data_source)
+
+    try:
+        with open(output_dataset_file, "rb")as f:
+            train_dataset, test_dataset = dill.load(f)
+    except IOError:
+        train_data, test_data = dataset.IMDB.splits(TEXT, LABEL)
+        with open(output_dataset_file, "wb")as f:
+            dill.save((train_data, test_data), f)
+
     return train_dataset, test_dataset
 
