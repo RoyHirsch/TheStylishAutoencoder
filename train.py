@@ -47,9 +47,15 @@ def get_std_opt(model, params):
 
 
 class ResourcesManager:
-    def __init__(self, vocab_size, experiment_name, params, load_path=None,
+    def __init__(self, model_enc, model_dec, model_cls, params,
                  enc_name="_enc", dec_name="_dec", cls_name="_cls"):
-        self.exp_name = experiment_name
+        self.models = {
+            "enc": model_enc.to(params.device),
+            "dec": model_dec.to(params.device),
+            "cls": model_cls.to(params.device)
+        }
+
+        self.exp_name = params.EXP_NAME
         self.suffix = '.pth'
         self.path_ends = {
             "enc": enc_name,
@@ -57,31 +63,17 @@ class ResourcesManager:
             "cls": cls_name
         }
 
-        exp_folder = os.path.join(params.DATA_PATH, 'exp_' + str(params.EXP_NUM))
+        exp_folder = os.path.join(params.MODELS_PATH, params.EXP_NAME)
 
         self.save_path = exp_folder
         self.save_paths = self.get_paths_dict(exp_folder)
-        self.init_models(vocab_size, params)
-        self.load_path = load_path
-        if load_path:
-            self.load_models(load_path)
+        self.load_path = params.MODELS_LOAD_PATH
+        if self.load_path:
+            self.load_path
 
     def get_paths_dict(self, basic_path):
         return {
-            key: basic_path + self.exp_name + val + self.suffix for (key, val) in self.path_ends.items()
-        }
-
-    def init_models(self, vocab_size, params):
-        model_enc, model_dec = make_encoder_decoder(src_vocab=vocab_size, tgt_vocab=vocab_size,
-                                                    N=params.N_LAYERS, d_model=params.H_DIM, d_ff=params.FC_DIM,
-                                                    h=params.N_ATTN_HEAD, n_styles=params.N_STYLES, dropout=params.DO_RATE)
-        model_cls = Descriminator(output_size=params.N_STYLES, hidden_size=params.H_DIM,
-                                  embedding_length=params.H_DIM, drop_rate=params.DO_RATE_CLS)
-
-        self.models = {
-            "enc": model_enc.to(params.device),
-            "dec": model_dec.to(params.device),
-            "cls": model_cls.to(params.device)
+            key: os.path.join(basic_path, val + self.suffix) for (key, val) in self.path_ends.items()
         }
 
     def load_models(self, load_path=None):
@@ -175,6 +167,16 @@ class Seq2SeqSimpleLossCompute:
 Training Functions
 """
 
+
+def init_models(vocab_size, params):
+    model_enc, model_dec = make_encoder_decoder(src_vocab=vocab_size, tgt_vocab=vocab_size,
+                                                N=params.N_LAYERS, d_model=params.H_DIM, d_ff=params.FC_DIM,
+                                                h=params.N_ATTN_HEAD, n_styles=params.N_STYLES, dropout=params.DO_RATE)
+    model_cls = Descriminator(output_size=params.N_STYLES, hidden_size=params.H_DIM,
+                              embedding_length=params.H_DIM, drop_rate=params.DO_RATE_CLS)
+    return model_enc, model_dec, model_cls
+
+
 def train_cls_step(model_enc, model_cls, cls_opt, cls_criteria,
                    src, src_mask, labels):
     with torch.no_grad():
@@ -216,11 +218,9 @@ def train_transformer_step(model_cls, model_enc, model_dec, seq2seq_criteria,
     enc_loss = (rec_lambda * rec_loss) + (ent_lambda * ent_loss)
 
     # optimizer encoder
-    loss_val = enc_loss.item()
     enc_loss.backward()
     opt_enc.step()
 
-    return loss_val, rec_loss.item()
 
 def run_epoch(epoch, data_iter, model_enc, opt_enc, model_dec, opt_dec,
               model_cls, opt_cls, cls_criteria, seq2seq_criteria,
