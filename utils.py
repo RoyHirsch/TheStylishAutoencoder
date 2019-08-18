@@ -24,6 +24,11 @@ class Loss(object):
     def __call__(self):
         return self.total_loss / self.num_steps
 
+    def reset(self):
+        self.num_steps = 0.0
+        self.total_loss = 0.0
+
+
 class AccuracyRec(object):
 
     def __init__(self, pad_ind=1):
@@ -48,6 +53,10 @@ class AccuracyRec(object):
     def __call__(self):
         return self.correct / self.total * 100.0
 
+    def reset(self):
+        self.correct = 0.0
+        self.total = 0.0
+
 
 class AccuracyCls(object):
 
@@ -65,6 +74,9 @@ class AccuracyCls(object):
     def __call__(self):
         return self.correct / self.total * 100.0
 
+    def reset(self):
+        self.correct = 0.0
+        self.total = 0.0
 
 def preict_labels(preds):
     return preds.detach().argmax(-1)
