@@ -1,17 +1,8 @@
-import os
-import sys
-import numpy as np
-import logging
-
-import torch
-import torch.nn as nn
-from torch.utils.data import DataLoader, Dataset, RandomSampler
-from torchnlp.datasets import imdb_dataset
-
 from data import *
 from train import *
 from evaluate import *
 from utils import *
+
 
 class Params(object):
 
@@ -19,7 +10,7 @@ class Params(object):
     # Free text to describe the experiment
     COMMENT = ''
     VERBOSE = True
-    EXP_NAME = "basic_exp_0"
+    EXP_NAME = "basic_exp"
     # DATA_PATH = "/content/drive/My Drive/NLP/final/"
     # MODELS_PATH = "/content/drive/My Drive/NLP/final/"
     PRINT_INTERVAL = 100
@@ -65,6 +56,7 @@ class Params(object):
 
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
+
 params = Params()
 logger = create_logger(params)
 pprint_params(params)
@@ -76,7 +68,9 @@ logging.info('Train dataset len: {} Test dataset len: {}'.format(len(train_iter.
 # TODO: local use
 # torch.cuda.empty_cache()
 
-### Init models ###
+"""
+Init models
+"""
 
 vocab_size = len(TEXT.vocab)
 model_enc, model_dec, model_cls = init_models(vocab_size, params)
