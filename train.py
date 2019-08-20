@@ -10,6 +10,7 @@ from transformer_model import *
 from classifier_model import *
 from utils import AccuracyCls, AccuracyRec, Loss
 
+
 class NoamOpt:
     "Optim wrapper that implements rate."
 
@@ -109,7 +110,8 @@ class ResourcesManager:
     def save_models_on_epoch_end(self, epoch):
         epoch_str = '_e{}_'.format(epoch)
         for key, val in self.path_ends.items():
-            self.save_model(key, save_path=os.path.join(self.save_path, self.exp_name + epoch_str + val + self.suffix), verbose=False)
+            self.save_model(key, save_path=os.path.join(self.save_path, self.exp_name + epoch_str + val + self.suffix),
+                            verbose=False)
 
 
 """
@@ -233,7 +235,6 @@ def train_transformer_step(model_cls, model_enc, model_dec, seq2seq_criteria,
 def run_epoch(epoch, data_iter, model_enc, opt_enc, model_dec, opt_dec,
               model_cls, opt_cls, cls_criteria, seq2seq_criteria,
               ent_criteria, params):
-
     trans_steps = params.TRANS_STEPS
     cls_steps = params.CLS_STEPS
     rec_lambda = params.REC_LAMBDA
@@ -262,26 +263,29 @@ def run_epoch(epoch, data_iter, model_enc, opt_enc, model_dec, opt_dec,
         trg_mask = trg_mask.to(device)
         labels = labels.to(device)
 
-        if i < trans_steps: #training the transformer
+        if i < trans_steps:  # training the transformer
             if i == 0:  # switch from cls_train setting to trans_train setting
                 logging.info("Training TRANS")
                 model_cls.eval()
                 model_enc.train()
 
             train_transformer_step(model_cls=model_cls, model_enc=model_enc,
-                                                        model_dec=model_dec, seq2seq_criteria=seq2seq_criteria,
-                                                        ent_criteria=ent_criteria, opt_enc=opt_enc,
-                                                        opt_dec=opt_dec, rec_lambda=rec_lambda, src=src,
-                                                        src_mask=src_mask, labels=labels, trg_mask=trg_mask,
-                                                        ent_running_loss=ent_running_loss,
-                                                        rec_running_loss=rec_running_loss, rec_acc=rec_acc)
+                                   model_dec=model_dec, seq2seq_criteria=seq2seq_criteria,
+                                   ent_criteria=ent_criteria, opt_enc=opt_enc,
+                                   opt_dec=opt_dec, rec_lambda=rec_lambda, src=src,
+                                   src_mask=src_mask, labels=labels, trg_mask=trg_mask,
+                                   ent_running_loss=ent_running_loss,
+                                   rec_running_loss=rec_running_loss, rec_acc=rec_acc)
             if step % print_interval == print_interval - 1:
+                loss = rec_lambda * rec_running_loss() + (1 - rec_lambda) * ent_running_loss()
                 if verbose:
                     logging.info(
-                        "e-{},s-{}: Training transformer ent_loss {}, rec_loss {}, rec_acc {}".format(epoch, step,
-                                                                                                      ent_running_loss(),
-                                                                                                      rec_running_loss(),
-                                                                                                      rec_acc()))
+                        "e-{},s-{}: Training transformer ent_loss {}, rec_loss {}, loss {}, rec_acc {}".format(epoch,
+                                                                                                               step,
+                                                                                                               ent_running_loss(),
+                                                                                                               rec_running_loss(),
+                                                                                                               loss,
+                                                                                                               rec_acc()))
                 ent_running_loss.reset()
                 rec_running_loss.reset()
                 rec_acc.reset()
@@ -293,8 +297,8 @@ def run_epoch(epoch, data_iter, model_enc, opt_enc, model_dec, opt_dec,
                 model_enc.eval()
 
             train_cls_step(model_enc=model_enc, model_cls=model_cls, cls_opt=opt_cls,
-                                           cls_criteria=cls_criteria, src=src, src_mask=src_mask,
-                                           labels=labels, cls_acc=cls_acc, cls_running_loss=cls_running_loss)
+                           cls_criteria=cls_criteria, src=src, src_mask=src_mask,
+                           labels=labels, cls_acc=cls_acc, cls_running_loss=cls_running_loss)
 
             if step % print_interval == print_interval - 1:
                 if verbose:
@@ -303,4 +307,3 @@ def run_epoch(epoch, data_iter, model_enc, opt_enc, model_dec, opt_dec,
                                                                         cls_acc()))
                 cls_running_loss.reset()
                 cls_acc.reset()
-

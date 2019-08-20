@@ -46,18 +46,18 @@ def evaluate(epoch, data_iter, model_enc, model_dec,
             encode_out = model_enc(src, src_mask)
             cls_preds = model_cls(encode_out)
             cls_loss = cls_criteria(cls_preds, labels)
-            cls_running_loss.update(cls_loss.item())
+            cls_running_loss.update(cls_loss)
 
             # Rec loss
             preds = model_dec(encode_out, labels, src_mask, src, trg_mask)
             rec_loss = seq2seq_criteria(preds.contiguous().view(-1, preds.size(-1)),
                                         src.contiguous().view(-1))
-            rec_running_loss.update(rec_loss.item())
+            rec_running_loss.update(rec_loss)
 
             # Entropy loss
             cls_preds = model_cls(encode_out)
             ent_loss = ent_criteria(cls_preds)
-            ent_running_loss.update(ent_loss.item())
+            ent_running_loss.update(ent_loss)
 
             # Accuracy
             rec_acc.update(preds, src)

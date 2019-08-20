@@ -100,13 +100,13 @@ def get_data_loaders(params, TEXT, LABEL):
     else:
         raise ValueError('Invalid data source ' + data_source)
 
-    try:
+    if os.path.isfile(output_dataset_file):
         with open(output_dataset_file, "rb")as f:
             train_dataset, test_dataset = dill.load(f)
-    except IOError:
-        train_data, test_data = dataset.IMDB.splits(TEXT, LABEL)
+    else:
+        train_data, test_data = dataset.splits(TEXT, LABEL)
         with open(output_dataset_file, "wb")as f:
-            dill.save((train_data, test_data), f)
+            dill.dump((train_data, test_data), f)
 
     return train_dataset, test_dataset
 
