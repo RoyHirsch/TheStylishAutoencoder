@@ -30,7 +30,7 @@ def evaluate(epoch, data_iter, model_enc, model_dec,
 
     with torch.no_grad():
         for i, batch in enumerate(data_iter):
-            if params.TEST_SIZE and i == params.TEST_MAX_BATCH_SIZE:
+            if params.TEST_MAX_BATCH_SIZE and i == params.TEST_MAX_BATCH_SIZE:
                 break
 
             # Prepare batch
@@ -134,7 +134,8 @@ def test_random_samples(data_iter, TEXT, model_enc, model_dec, model_cls, device
 
             pred_label = 'pos' if torch.argmax(cls_preds) == 1 else 'neg'
             if decode_func:
-                dec_sent = decode_func(preds, id2word, eos_id)
+                # Send to decoding without the first output - this is the style embedding
+                dec_sent = decode_func(preds[1:], id2word, eos_id)
                 if transfer_style:
                     logging.info('Style transfer output:')
                 logging.info('Predicted: text: {}'.format(dec_sent))
