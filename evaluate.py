@@ -142,7 +142,7 @@ def test_random_samples(data_iter, TEXT, model_enc, model_dec, model_cls, device
             pred_label = 'pos' if torch.argmax(cls_preds) == 1 else 'neg'
             if decode_func:
                 # Send to decoding without the first output - this is the style embedding
-                dec_sent = decode_func(preds[1:], id2word, eos_id)
+                dec_sent = decode_func(preds[:, 1:, :], id2word, eos_id)
                 if transfer_style:
                     logging.info('Style transfer output:')
                 logging.info('Predicted: text: {}'.format(dec_sent))
