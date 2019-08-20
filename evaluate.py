@@ -60,6 +60,10 @@ def evaluate(epoch, data_iter, model_enc, model_dec,
             ent_running_loss.update(ent_loss)
 
             # Accuracy
+            preds = preds[:, 1:, :]
+            preds = preds.contiguous().view(-1, preds.size(-1))
+            src = src[:, :-1]
+            src = src.contiguous().view(-1)
             rec_acc.update(preds, src)
             cls_acc.update(cls_preds, labels)
 
@@ -84,8 +88,11 @@ def sent2str(sent_as_np, id2word, eos_id=None):
         raise ValueError('Invalid input type, expected np array')
     if eos_id:
         end_id = np.where(sent_as_np == eos_id)[0]
-        if end_id.size != 0:
+        if len(end_id) > 1:
+            sent_as_np = sent_as_np[:int(end_id[0])]
+        elif len(end_id) == 1:
             sent_as_np = sent_as_np[:int(end_id)]
+
     return " ".join([id2word[i] for i in sent_as_np])
 
 def test_random_samples(data_iter, TEXT, model_enc, model_dec, model_cls, device, decode_func=None, num_samples=2,
