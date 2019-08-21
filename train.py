@@ -43,9 +43,9 @@ class NoamOpt:
         self.optimizer.zero_grad()
 
 
-def get_std_opt(model, params):
-    return NoamOpt(params.H_DIM, 2, params.OPT_WARMUP_FACTOR,
-                   torch.optim.Adam(model.parameters(), lr=params.LR, betas=(0.9, 0.98), eps=1e-9))
+def get_std_opt(model, h_dim, lr, warmup, eps=1e-9, factor=2, betas=(0.9, 0.98)):
+    return NoamOpt(h_dim, factor, warmup,
+                   torch.optim.Adam(model.parameters(), lr=lr, betas=betas, eps=eps))
 
 
 class ResourcesManager:
@@ -232,18 +232,91 @@ def train_transformer_step(model_cls, model_enc, model_dec, seq2seq_criteria,
     opt_enc.step()
 
 
+def train_entropy_step(model_cls, model_enc, ent_criteria, opt_enc,
+                       src, src_mask, ent_running_loss, ent_lambda=1.0):
+    encode_out = model_enc(src, src_mask)
+
+    opt_enc.zero_grad()
+    with torch.no_grad():
+        cls_preds = model_cls(encode_out)
+    ent_loss = ent_criteria(cls_preds)
+    ent_loss = ent_lambda * ent_loss
+    ent_running_loss.update(ent_loss)
+
+    # optimizer encoder
+    ent_loss.backward()
+    opt_enc.step()
+
+
+def train_rec_step(model_enc, model_dec, seq2seq_criteria,
+                   opt_enc, opt_dec,
+                   src, src_mask, labels, trg_mask, rec_running_loss,
+                   ent_running_loss, rec_acc, rec_lambda=0.0):
+
+    encode_out = model_enc(src, src_mask)
+    preds = model_dec(encode_out, labels, src_mask, src, trg_mask)
+
+    # Ignore the style embedding locations preds.size() = [batch_size, max_len, vocab_size]
+    preds = preds[:, 1:, :]
+    preds = preds.contiguous().view(-1, preds.size(-1))
+    # Ignore the last token src.size() = [batch_size, max_len]
+    src = src[:, :-1]
+    src = src.contiguous().view(-1)
+    rec_loss = seq2seq_criteria(preds, src)
+    rec_running_loss.update(rec_loss)
+    rec_acc.update(preds, src)
+
+    # optimize decoder
+    opt_dec.zero_grad()
+    rec_loss.backward(retain_graph=True)
+    opt_dec.step()
+
+    enc_loss = rec_lambda * rec_loss
+
+    # optimizer encoder
+    enc_loss.backward()
+    opt_enc.step()
+
+
+def get_train_steps_from_params(train_set_size, train_batch_size,
+                                period_to_epoch_ratio, trans_steps_ratio):
+    steps_per_epoch = train_set_size // train_batch_size
+    period_size = int(steps_per_epoch * period_to_epoch_ratio)
+    trans_period_steps = period_size * trans_steps_ratio
+    cls_period_steps = period_size - trans_period_steps
+
+    logging.info("steps_per_epoch {}, period is {} steps: {} trans, {} cls".format(steps_per_epoch,
+                                                                                   period_size,
+                                                                                   trans_period_steps,
+                                                                                   cls_period_steps))
+    return trans_period_steps, cls_period_steps
+
+
+def get_warmup_steps_from_params(train_set_size, train_batch_size, n_epochs,
+                                 trans_steps_ratio, enc_ratio, dec_ratio, cls_ratio):
+    steps_per_epoch = train_set_size // train_batch_size
+    n_total_steps = n_epochs * steps_per_epoch
+    warmup_enc_steps = n_total_steps * trans_steps_ratio * enc_ratio
+    warmup_dec_steps = n_total_steps * trans_steps_ratio * dec_ratio
+    warmup_cls_steps = n_total_steps * (1 - trans_steps_ratio) * cls_ratio
+
+    logging.info("enc_warmup {}, dec_warmup {}, cls_warmup {}".format(warmup_enc_steps,
+                                                                      warmup_dec_steps,
+                                                                      warmup_cls_steps))
+
+    return warmup_enc_steps, warmup_dec_steps, warmup_cls_steps
+
+
 def run_epoch(epoch, data_iter, model_enc, opt_enc, model_dec, opt_dec,
               model_cls, opt_cls, cls_criteria, seq2seq_criteria,
               ent_criteria, params):
-    trans_steps = params.TRANS_STEPS
-    cls_steps = params.CLS_STEPS
+    trans_steps, cls_steps = get_train_steps_from_params(len(data_iter.dataset),
+                                                         params.TRAIN_BATCH_SIZE,
+                                                         params.PERIOD_EPOCH_RATIO,
+                                                         params.TRANS_STEPS_RATIO)
     rec_lambda = params.REC_LAMBDA
-    print_interval = params.PRINT_INTERVAL
     verbose = params.VERBOSE
     device = params.device
-
-    if verbose:
-        assert not (trans_steps % print_interval) and not (cls_steps % print_interval)
 
     cls_running_loss = Loss()
     rec_running_loss = Loss()
@@ -276,7 +349,7 @@ def run_epoch(epoch, data_iter, model_enc, opt_enc, model_dec, opt_dec,
                                    src_mask=src_mask, labels=labels, trg_mask=trg_mask,
                                    ent_running_loss=ent_running_loss,
                                    rec_running_loss=rec_running_loss, rec_acc=rec_acc)
-            if step % print_interval == print_interval - 1:
+            if i == trans_steps - 1:
                 loss = rec_lambda * rec_running_loss() + (1 - rec_lambda) * ent_running_loss()
                 if verbose:
                     logging.info(
@@ -300,7 +373,7 @@ def run_epoch(epoch, data_iter, model_enc, opt_enc, model_dec, opt_dec,
                            cls_criteria=cls_criteria, src=src, src_mask=src_mask,
                            labels=labels, cls_acc=cls_acc, cls_running_loss=cls_running_loss)
 
-            if step % print_interval == print_interval - 1:
+            if i == trans_steps + cls_steps - 1:
                 if verbose:
                     logging.info(
                         "e-{},s-{}: Training cls loss {} acc {}".format(epoch, step, cls_running_loss(),
