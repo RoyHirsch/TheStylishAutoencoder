@@ -197,10 +197,9 @@ def train_cls_step(model_enc, model_cls, cls_opt, cls_criteria,
 
 
 def train_transformer_step(model_cls, model_enc, model_dec, seq2seq_criteria,
-                           ent_criteria, opt_enc, opt_dec, rec_lambda,
+                           ent_criteria, opt_enc, opt_dec, rec_lambda, ent_lambda,
                            src, src_mask, labels, trg_mask, rec_running_loss,
                            ent_running_loss, rec_acc):
-    ent_lambda = 1 - rec_lambda
 
     encode_out = model_enc(src, src_mask)
     preds = model_dec(encode_out, labels, src_mask, src, trg_mask)
@@ -280,7 +279,7 @@ def get_train_steps_from_params(train_set_size, train_batch_size,
                                 period_to_epoch_ratio, trans_steps_ratio):
     steps_per_epoch = train_set_size // train_batch_size
     period_size = int(steps_per_epoch * period_to_epoch_ratio)
-    trans_period_steps = period_size * trans_steps_ratio
+    trans_period_steps = int(period_size * trans_steps_ratio)
     cls_period_steps = period_size - trans_period_steps
 
     logging.info("steps_per_epoch {}, period is {} steps: {} trans, {} cls".format(steps_per_epoch,
@@ -313,6 +312,7 @@ def run_epoch(epoch, data_iter, model_enc, opt_enc, model_dec, opt_dec,
                                                          params.PERIOD_EPOCH_RATIO,
                                                          params.TRANS_STEPS_RATIO)
     rec_lambda = params.REC_LAMBDA
+    ent_lambda = params.ENT_LAMBDA
     verbose = params.VERBOSE
     device = params.device
 
@@ -337,14 +337,13 @@ def run_epoch(epoch, data_iter, model_enc, opt_enc, model_dec, opt_dec,
         if i < trans_steps:  # training the transformer
             if i == 0:  # switch from cls_train setting to trans_train setting
                 logging.debug("Training TRANS")
-                model_cls.eval()
                 model_enc.train()
 
             train_transformer_step(model_cls=model_cls, model_enc=model_enc,
                                    model_dec=model_dec, seq2seq_criteria=seq2seq_criteria,
                                    ent_criteria=ent_criteria, opt_enc=opt_enc,
-                                   opt_dec=opt_dec, rec_lambda=rec_lambda, src=src,
-                                   src_mask=src_mask, labels=labels, trg_mask=trg_mask,
+                                   opt_dec=opt_dec, rec_lambda=rec_lambda, ent_lambda=ent_lambda,
+                                   src=src, src_mask=src_mask, labels=labels, trg_mask=trg_mask,
                                    ent_running_loss=ent_running_loss,
                                    rec_running_loss=rec_running_loss, rec_acc=rec_acc)
             if i == trans_steps - 1:
@@ -364,7 +363,6 @@ def run_epoch(epoch, data_iter, model_enc, opt_enc, model_dec, opt_dec,
         else:  # training the classifier
             if i == trans_steps:  # switch from trans_train setting to cls_train setting
                 logging.debug("Training CLS")
-                model_cls.train()
                 model_enc.eval()
 
             train_cls_step(model_enc=model_enc, model_cls=model_cls, cls_opt=opt_cls,
