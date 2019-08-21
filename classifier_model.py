@@ -65,6 +65,7 @@ class DescriminatorAttention(nn.Module):
         final_out = self.fc(final_feature_map)
         return final_out
 
+
 class Descriminator(nn.Module):
     ''' https://github.com/AnubhavGupta3377/Text-Classification-Models-Pytorch '''
 
