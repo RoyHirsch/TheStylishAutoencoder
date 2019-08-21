@@ -56,6 +56,7 @@ class Params(object):
     DEC_WARMUP_RATIO = 0.1
     CLS_WARMUP_RATIO = 0.1
     REC_LAMBDA = 0.0
+    ENT_LAMBDA = 1.0
 
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
@@ -84,7 +85,8 @@ model_dec = models["dec"]
 model_cls = models["cls"]
 
 # TODO: if using this option set H_DIM = 300
-# model_enc = load_pretrained_embedding_to_encoder(model_enc, word_embeddings)
+if params.H_DIM == 300:
+    model_enc = load_pretrained_embedding_to_encoder(model_enc, word_embeddings)
 
 ### Init losses ###
 cls_criteria = nn.CrossEntropyLoss()

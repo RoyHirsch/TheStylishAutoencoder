@@ -197,10 +197,9 @@ def train_cls_step(model_enc, model_cls, cls_opt, cls_criteria,
 
 
 def train_transformer_step(model_cls, model_enc, model_dec, seq2seq_criteria,
-                           ent_criteria, opt_enc, opt_dec, rec_lambda,
+                           ent_criteria, opt_enc, opt_dec, rec_lambda, ent_lambda,
                            src, src_mask, labels, trg_mask, rec_running_loss,
                            ent_running_loss, rec_acc):
-    ent_lambda = 1 - rec_lambda
 
     encode_out = model_enc(src, src_mask)
     preds = model_dec(encode_out, labels, src_mask, src, trg_mask)
@@ -217,8 +216,7 @@ def train_transformer_step(model_cls, model_enc, model_dec, seq2seq_criteria,
     opt_dec.step()
 
     opt_enc.zero_grad()
-    with torch.no_grad():
-        cls_preds = model_cls(encode_out)
+    cls_preds = model_cls(encode_out)
     ent_loss = ent_criteria(cls_preds)
     ent_running_loss.update(ent_loss)
     enc_loss = (rec_lambda * rec_loss) + (ent_lambda * ent_loss)
@@ -230,13 +228,12 @@ def train_transformer_step(model_cls, model_enc, model_dec, seq2seq_criteria,
 
 def train_entropy_step(model_cls, model_enc, ent_criteria, opt_enc,
                        src, src_mask, ent_running_loss, ent_lambda=1.0):
-    encode_out = model_enc(src, src_mask)
 
+    encode_out = model_enc(src, src_mask)
     opt_enc.zero_grad()
-    with torch.no_grad():
-        cls_preds = model_cls(encode_out)
+    cls_preds = model_cls(encode_out)
     ent_loss = ent_criteria(cls_preds)
-    ent_loss = ent_lambda * ent_loss
+    ent_loss *= ent_lambda
     ent_running_loss.update(ent_loss)
 
     # optimizer encoder
@@ -247,8 +244,7 @@ def train_entropy_step(model_cls, model_enc, ent_criteria, opt_enc,
 def train_rec_step(model_enc, model_dec, seq2seq_criteria,
                    opt_enc, opt_dec,
                    src, src_mask, labels, trg_mask, rec_running_loss,
-                   ent_running_loss, rec_acc, rec_lambda=0.0):
-
+                   rec_acc, rec_lambda=0.0):
     encode_out = model_enc(src, src_mask)
     preds = model_dec(encode_out, labels, src_mask, src, trg_mask)
 
@@ -264,17 +260,18 @@ def train_rec_step(model_enc, model_dec, seq2seq_criteria,
     opt_dec.step()
 
     enc_loss = rec_lambda * rec_loss
-
     # optimizer encoder
-    enc_loss.backward()
-    opt_enc.step()
+    if enc_loss:
+        opt_enc.zero_grad()
+        enc_loss.backward()
+        opt_enc.step()
 
 
 def get_train_steps_from_params(train_set_size, train_batch_size,
                                 period_to_epoch_ratio, trans_steps_ratio):
     steps_per_epoch = train_set_size // train_batch_size
     period_size = int(steps_per_epoch * period_to_epoch_ratio)
-    trans_period_steps = period_size * trans_steps_ratio
+    trans_period_steps = int(period_size * trans_steps_ratio)
     cls_period_steps = period_size - trans_period_steps
 
     logging.info("steps_per_epoch {}, period is {} steps: {} trans, {} cls".format(steps_per_epoch,
@@ -307,6 +304,7 @@ def run_epoch(epoch, data_iter, model_enc, opt_enc, model_dec, opt_dec,
                                                          params.PERIOD_EPOCH_RATIO,
                                                          params.TRANS_STEPS_RATIO)
     rec_lambda = params.REC_LAMBDA
+    ent_lambda = params.ENT_LAMBDA
     verbose = params.VERBOSE
     device = params.device
 
@@ -330,15 +328,14 @@ def run_epoch(epoch, data_iter, model_enc, opt_enc, model_dec, opt_dec,
 
         if i < trans_steps:  # training the transformer
             if i == 0:  # switch from cls_train setting to trans_train setting
-                logging.info("Training TRANS")
-                model_cls.eval()
+                logging.debug("Training TRANS")
                 model_enc.train()
 
             train_transformer_step(model_cls=model_cls, model_enc=model_enc,
                                    model_dec=model_dec, seq2seq_criteria=seq2seq_criteria,
                                    ent_criteria=ent_criteria, opt_enc=opt_enc,
-                                   opt_dec=opt_dec, rec_lambda=rec_lambda, src=src,
-                                   src_mask=src_mask, labels=labels, trg_mask=trg_mask,
+                                   opt_dec=opt_dec, rec_lambda=rec_lambda, ent_lambda=ent_lambda,
+                                   src=src, src_mask=src_mask, labels=labels, trg_mask=trg_mask,
                                    ent_running_loss=ent_running_loss,
                                    rec_running_loss=rec_running_loss, rec_acc=rec_acc)
             if i == trans_steps - 1:
@@ -357,8 +354,7 @@ def run_epoch(epoch, data_iter, model_enc, opt_enc, model_dec, opt_dec,
 
         else:  # training the classifier
             if i == trans_steps:  # switch from trans_train setting to cls_train setting
-                logging.info("Training CLS")
-                model_cls.train()
+                logging.debug("Training CLS")
                 model_enc.eval()
 
             train_cls_step(model_enc=model_enc, model_cls=model_cls, cls_opt=opt_cls,
@@ -372,3 +368,79 @@ def run_epoch(epoch, data_iter, model_enc, opt_enc, model_dec, opt_dec,
                                                                         cls_acc()))
                 cls_running_loss.reset()
                 cls_acc.reset()
+
+
+def run_epoch_rec_ent(epoch, data_iter, model_enc, opt_enc, model_dec, opt_dec,
+                      model_cls, opt_cls, cls_criteria, seq2seq_criteria,
+                      ent_criteria, params):
+    trans_steps, cls_steps = get_train_steps_from_params(len(data_iter.dataset),
+                                                         params.TRAIN_BATCH_SIZE,
+                                                         params.PERIOD_EPOCH_RATIO,
+                                                         params.TRANS_STEPS_RATIO)
+    rec_lambda = params.REC_LAMBDA
+    verbose = params.VERBOSE
+    device = params.device
+
+    cls_running_loss = Loss()
+    rec_running_loss = Loss()
+    ent_running_loss = Loss()
+
+    rec_acc = AccuracyRec()
+    cls_acc = AccuracyCls()
+
+    rec_steps = int(trans_steps * params.REC_STEPS_RATIO)
+
+    for step, batch in enumerate(data_iter):
+        # prepare batch
+        i = step % (trans_steps + cls_steps)
+        src, labels = batch.text, batch.label
+        src_mask, trg_mask = make_masks(src, src, device)
+
+        src = src.to(device)
+        src_mask = src_mask.to(device)
+        trg_mask = trg_mask.to(device)
+        labels = labels.to(device)
+
+        if i < rec_steps:  # training the rec
+            if i == 0:  # switch from cls_train setting to trans_train setting
+                model_enc.train()
+                model_cls.eval()
+            train_rec_step(model_enc, model_dec, seq2seq_criteria, opt_enc, opt_dec, src,
+                           src_mask, labels, trg_mask, rec_running_loss, rec_acc, rec_lambda)
+            if i == rec_steps - 1:
+                enc_loss = rec_lambda * rec_running_loss()
+                if verbose:
+                    logging.info(
+                        "e-{},s-{}: Training transformer on rec, rec_loss {}, enc_loss {}, rec_acc {}".format(epoch,
+                                                                                                              step,
+                                                                                                              rec_running_loss(),
+                                                                                                              enc_loss,
+                                                                                                              rec_acc()))
+                rec_running_loss.reset()
+                rec_acc.reset()
+        elif rec_steps <= i < trans_steps:
+            train_entropy_step(model_cls, model_enc, ent_criteria, opt_enc, src,
+                               src_mask, ent_running_loss, ent_lambda=params.ENT_LAMBDA)
+            if i == trans_steps - 1:
+                if verbose:
+                    logging.info(
+                        "e-{},s-{}: Training encoder ent_loss {}".format(epoch, step,
+                                                                         ent_running_loss()))
+                    ent_running_loss.reset()
+
+        else:  # training the classifier
+            if i == trans_steps:  # switch from trans_train setting to cls_train setting
+                model_cls.train()
+            model_enc.eval()
+
+            train_cls_step(model_enc=model_enc, model_cls=model_cls, cls_opt=opt_cls,
+                           cls_criteria=cls_criteria, src=src, src_mask=src_mask,
+                           labels=labels, cls_acc=cls_acc, cls_running_loss=cls_running_loss)
+
+            if i == trans_steps + cls_steps - 1:
+                if verbose:
+                    logging.info(
+                        "e-{},s-{}: Training cls loss {} acc {}".format(epoch, step, cls_running_loss(),
+                                                                        cls_acc()))
+                    cls_running_loss.reset()
+                    cls_acc.reset()
