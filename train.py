@@ -205,11 +205,7 @@ def train_transformer_step(model_cls, model_enc, model_dec, seq2seq_criteria,
     encode_out = model_enc(src, src_mask)
     preds = model_dec(encode_out, labels, src_mask, src, trg_mask)
 
-    # Ignore the style embedding locations preds.size() = [batch_size, max_len, vocab_size]
-    preds = preds[:, 1:, :]
     preds = preds.contiguous().view(-1, preds.size(-1))
-    # Ignore the last token src.size() = [batch_size, max_len]
-    src = src[:, :-1]
     src = src.contiguous().view(-1)
     rec_loss = seq2seq_criteria(preds, src)
     rec_running_loss.update(rec_loss)
@@ -256,11 +252,7 @@ def train_rec_step(model_enc, model_dec, seq2seq_criteria,
     encode_out = model_enc(src, src_mask)
     preds = model_dec(encode_out, labels, src_mask, src, trg_mask)
 
-    # Ignore the style embedding locations preds.size() = [batch_size, max_len, vocab_size]
-    preds = preds[:, 1:, :]
     preds = preds.contiguous().view(-1, preds.size(-1))
-    # Ignore the last token src.size() = [batch_size, max_len]
-    src = src[:, :-1]
     src = src.contiguous().view(-1)
     rec_loss = seq2seq_criteria(preds, src)
     rec_running_loss.update(rec_loss)

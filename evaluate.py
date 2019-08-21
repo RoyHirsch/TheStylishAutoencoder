@@ -60,9 +60,7 @@ def evaluate(epoch, data_iter, model_enc, model_dec,
             ent_running_loss.update(ent_loss)
 
             # Accuracy
-            preds = preds[:, 1:, :]
             preds = preds.contiguous().view(-1, preds.size(-1))
-            src = src[:, :-1]
             src = src.contiguous().view(-1)
             rec_acc.update(preds, src)
             cls_acc.update(cls_preds, labels)
@@ -176,7 +174,7 @@ def test_random_samples(data_iter, TEXT, model_enc, model_dec, model_cls, device
             pred_label = 'pos' if torch.argmax(cls_preds) == 1 else 'neg'
             if decode_func:
                 # Send to decoding without the first output - this is the style embedding
-                dec_sent = decode_func(preds[:, 1:, :], id2word, eos_id)
+                dec_sent = decode_func(preds, id2word, eos_id)
                 if transfer_style:
                     logging.info('Style transfer output:')
                 logging.info('Predicted: text: {}'.format(dec_sent))
