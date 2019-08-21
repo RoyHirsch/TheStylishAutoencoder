@@ -178,7 +178,7 @@ def init_models(vocab_size, params):
                                                 N=params.N_LAYERS, d_model=params.H_DIM, d_ff=params.FC_DIM,
                                                 h=params.N_ATTN_HEAD, n_styles=params.N_STYLES, dropout=params.DO_RATE)
     model_cls = Descriminator(output_size=params.N_STYLES, hidden_size=params.H_DIM,
-                              input_size=params.H_DIM, drop_rate=params.DO_RATE_CLS)
+                              embedding_length=params.H_DIM, drop_rate=params.DO_RATE_CLS)
     return model_enc, model_dec, model_cls
 
 
