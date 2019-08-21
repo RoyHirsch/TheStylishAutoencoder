@@ -81,6 +81,40 @@ def greedy_decode_sent(preds, id2word, eos_id):
     decoded_sent = sent2str(preds, id2word, eos_id)
     return decoded_sent
 
+
+def softmax(x):
+    """Compute softmax values for each sets of scores in x."""
+    return np.exp(x) / np.sum(np.exp(x), axis=1, keepdims=True)
+
+def beam_search_decoder(preds, id2word, eos_id):
+    bean_size = 5
+
+    # [ max_len, vocab_size ]
+    # from logits to probs
+    preds = preds.squeeze(0).detach().cpu().numpy()
+    preds = softmax(preds)
+
+    sequences = [[list(), 1.0]]
+    # walk over each step in sequence
+    for row in preds:
+        all_candidates = list()
+        # expand each current candidate
+        for i in range(len(sequences)):
+            seq, score = sequences[i]
+            for j in range(len(row)):
+                candidate = [seq + [j], score * -math.log(row[j])]
+                all_candidates.append(candidate)
+
+        ordered = sorted(all_candidates, key=lambda tup: tup[1])
+        # select k best
+        sequences = ordered[:bean_size]
+
+    # Select the best scores sentence
+    best_seq = sequences[-1][0]
+    decoded_sent = sent2str(np.array(best_seq), id2word, eos_id)
+
+    return decoded_sent
+
 def sent2str(sent_as_np, id2word, eos_id=None):
     ''' Gets sentence as a list of ids and transfers to string
         Input is np array of ids '''
