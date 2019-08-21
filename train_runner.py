@@ -19,7 +19,6 @@ class Params(object):
     DATA_PATH = MODELS_PATH = os.path.abspath(__file__+'/../')
     MODELS_LOAD_PATH = None
 
-
     # Data
     DATASET_NAME = 'IMDB'
     # Maximal number of batches for test model
@@ -27,7 +26,7 @@ class Params(object):
     # Min freq for word in dataset to include in vocab
     VOCAB_MIN_FREQ = 5
     # Whether to use Glove embadding - if TRUE set H_DIM to 300
-    VOCAB_USE_GLOVE = False
+    VOCAB_USE_GLOVE = True
     TRAIN_BATCH_SIZE = 16
     TEST_BATCH_SIZE = 16
     # maximum length of allowed sentence - can be also None
@@ -35,8 +34,8 @@ class Params(object):
 
     # Transformer model
     N_LAYERS = 6
-    H_DIM = 512
-    N_ATTN_HEAD = 8
+    H_DIM = 300
+    N_ATTN_HEAD = 6
     FC_DIM = 2048
     DO_RATE = 0.1
 
@@ -48,6 +47,10 @@ class Params(object):
     N_EPOCHS = 100
     PATIENCE = 3
     LR = 0.1
+
+    LR_CLS = 1e-3
+    WD_CLS = 1e-5
+
     OPT_WARMUP_FACTOR = 4000
     REC_LAMBDA = 0.5
     CLS_STEPS = 500
@@ -95,7 +98,8 @@ ent_criteria = EntropyLoss()
 ent_criteria = ent_criteria.to(params.device)
 
 ### Init optimizers ###
-cls_opt = get_std_opt(model_cls, params)
+cls_opt = torch.optim.Adam(filter(lambda p: p.requires_grad, model_cls.parameters()),
+                           lr=params.LR_CLS, weight_decay=params.WD_CLS)
 enc_opt = get_std_opt(model_enc, params)
 dec_opt = get_std_opt(model_dec, params)
 
