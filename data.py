@@ -65,13 +65,12 @@ def load_dataset(params, device, load_from_memory=False):
     else:
         if data_source == 'IMDB':
             train_data, test_data = datasets.IMDB.splits(TEXT, LABEL)
-
         elif data_source == 'SST':
             train_data, test_data = datasets.SST.splits(TEXT, LABEL)
 
     if params.VOCAB_USE_GLOVE:
         TEXT.build_vocab(train_data, test_data, min_freq=params.VOCAB_MIN_FREQ, vectors=GloVe(name='6B', dim=300))
-        logging.info("Loaded Glove embedding, Vector size of Text Vocabulary: ", TEXT.vocab.vectors.size())
+        logging.info("Loaded Glove embedding, Vector size of Text Vocabulary: " + str(TEXT.vocab.vectors.size()))
 
     else:
         TEXT.build_vocab(train_data, test_data, min_freq=params.VOCAB_MIN_FREQ)
