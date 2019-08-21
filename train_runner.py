@@ -5,7 +5,6 @@ from utils import *
 
 
 class Params(object):
-
     # Loggin
     # Free text to describe the experiment
     COMMENT = ''
@@ -16,7 +15,7 @@ class Params(object):
     PRINT_INTERVAL = 100
 
     # TODO: for local use
-    DATA_PATH = MODELS_PATH = os.path.abspath(__file__+'/../')
+    DATA_PATH = MODELS_PATH = os.path.abspath(__file__ + '/../')
     MODELS_LOAD_PATH = None
 
     # Data
@@ -46,16 +45,17 @@ class Params(object):
     # Train
     N_EPOCHS = 100
     PATIENCE = 3
-    LR = 0.1
-
+    LR_ENC = 0
+    LR_DEC = 0
     LR_CLS = 1e-3
     WD_CLS = 1e-5
 
-    OPT_WARMUP_FACTOR = 4000
-    REC_LAMBDA = 0.5
-    CLS_STEPS = 500
-    TRANS_STEPS = 500
-    MAX_GRAD = 1.0
+    TRANS_STEPS_RATIO = 0.5
+    PERIOD_EPOCH_RATIO = 0.2
+    ENC_WARMUP_RATIO = 0.1
+    DEC_WARMUP_RATIO = 0.1
+    CLS_WARMUP_RATIO = 0.1
+    REC_LAMBDA = 0.0
 
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
@@ -98,10 +98,20 @@ ent_criteria = EntropyLoss()
 ent_criteria = ent_criteria.to(params.device)
 
 ### Init optimizers ###
+enc_warmup, dec_warmup, cls_warmup = get_warmup_steps_from_params(len(train_iter.dataset),
+                                                                  params.TRAIN_BATCH_SIZE,
+                                                                  params.N_EPOCHS,
+                                                                  params.TRANS_STEPS_RATIO,
+                                                                  params.ENC_WARMUP_RATIO,
+                                                                  params.DEC_WARMUP_RATIO,
+                                                                  params.CLS_WARMUP_RATIO)
+
 cls_opt = torch.optim.Adam(filter(lambda p: p.requires_grad, model_cls.parameters()),
                            lr=params.LR_CLS, weight_decay=params.WD_CLS)
-enc_opt = get_std_opt(model_enc, params)
-dec_opt = get_std_opt(model_dec, params)
+enc_opt = get_std_opt(model_enc, h_dim=params.H_DIM, lr=params.LR_ENC, warmup=enc_warmup)
+dec_opt = get_std_opt(model_dec, h_dim=params.H_DIM, lr=params.LR_DEC, warmup=dec_warmup)
+
+early_stop = EarlyStopping(params.PATIENCE)
 
 model_enc.train()
 model_dec.train()
@@ -109,22 +119,21 @@ model_cls.train()
 early_stop = EarlyStopping(params.PATIENCE)
 
 for epoch in range(Params.N_EPOCHS):
-  logging.info('Epoch {}:'.format(epoch))
+    logging.info('Epoch {}:'.format(epoch))
 
-  run_epoch(epoch, train_iter, model_enc, enc_opt, model_dec, dec_opt,
+    run_epoch(epoch, train_iter, model_enc, enc_opt, model_dec, dec_opt,
               model_cls, cls_opt, cls_criteria, seq2seq_criteria,
               ent_criteria, params)
 
-  rm.save_models_on_epoch_end(epoch)
-  test_acc = evaluate(epoch, test_iter, model_enc, model_dec,
-             model_cls, cls_criteria, seq2seq_criteria,
-             ent_criteria, params)
+    rm.save_models_on_epoch_end(epoch)
+    test_acc = evaluate(epoch, test_iter, model_enc, model_dec,
+                        model_cls, cls_criteria, seq2seq_criteria,
+                        ent_criteria, params)
 
-  test_random_samples(test_iter, TEXT, model_enc, model_dec, model_cls, params.device,
-                      decode_func=greedy_decode_sent, num_samples=2, transfer_style=True)
+    test_random_samples(test_iter, TEXT, model_enc, model_dec, model_cls, params.device,
+                        decode_func=greedy_decode_sent, num_samples=2, transfer_style=True)
 
-  # TODO - Roy - currently not in use, what metric to follow ?
-  # early_stop(test_acc)
-  # if early_stop.early_stop:
-  #     break
-
+    # TODO - Roy - currently not in use, what metric to follow ?
+    # early_stop(test_acc)
+    # if early_stop.early_stop:
+    #     break
