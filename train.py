@@ -71,7 +71,7 @@ class ResourcesManager:
         self.save_paths = self.get_paths_dict(exp_folder)
         self.load_path = params.MODELS_LOAD_PATH
         if self.load_path:
-            self.load_path
+            self.load_models(self.load_path)
 
     def get_paths_dict(self, basic_path):
         return {
@@ -315,6 +315,9 @@ def run_epoch(epoch, data_iter, model_enc, opt_enc, model_dec, opt_dec,
     rec_acc = AccuracyRec()
     cls_acc = AccuracyCls()
 
+    model_cls.train()
+    model_dec.train()
+
     for step, batch in enumerate(data_iter):
         # prepare batch
         i = step % (trans_steps + cls_steps)
@@ -404,7 +407,6 @@ def run_epoch_rec_ent(epoch, data_iter, model_enc, opt_enc, model_dec, opt_dec,
         if i < rec_steps:  # training the rec
             if i == 0:  # switch from cls_train setting to trans_train setting
                 model_enc.train()
-                model_cls.eval()
             train_rec_step(model_enc, model_dec, seq2seq_criteria, opt_enc, opt_dec, src,
                            src_mask, labels, trg_mask, rec_running_loss, rec_acc, rec_lambda)
             if i == rec_steps - 1:
@@ -430,8 +432,7 @@ def run_epoch_rec_ent(epoch, data_iter, model_enc, opt_enc, model_dec, opt_dec,
 
         else:  # training the classifier
             if i == trans_steps:  # switch from trans_train setting to cls_train setting
-                model_cls.train()
-            model_enc.eval()
+                model_enc.eval()
 
             train_cls_step(model_enc=model_enc, model_cls=model_cls, cls_opt=opt_cls,
                            cls_criteria=cls_criteria, src=src, src_mask=src_mask,
