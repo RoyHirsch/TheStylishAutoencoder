@@ -68,13 +68,13 @@ class DescriminatorAttention(nn.Module):
 class Descriminator(nn.Module):
     ''' https://github.com/AnubhavGupta3377/Text-Classification-Models-Pytorch '''
 
-    def __init__(self, input_size, hidden_size, output_size, drop_rate):
+    def __init__(self, embedding_length, hidden_size, output_size, drop_rate):
 
         super().__init__()
 
         self.hidden_size = hidden_size
         # Encoder RNN
-        self.lstm = nn.LSTM(input_size=input_size,
+        self.lstm = nn.LSTM(input_size=embedding_length,
                             hidden_size=hidden_size,
                             num_layers=1,
                             bidirectional=True)
