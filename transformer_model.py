@@ -6,6 +6,7 @@ from torch.nn import functional as F
 from torch.autograd import Variable
 import torch.nn as nn
 
+
 class EncoderDecoder(nn.Module):
     """
     A standard Encoder-Decoder architecture. Base for this and many
@@ -296,6 +297,54 @@ class StyleDecoder(nn.Module):
         dec_out = self.decoder(tgt_modified, memory, src_mask, tgt_mask)
         return self.generator(dec_out)
 
+
+class StyleTransformer(nn.Module):
+    """
+    An encoder that also encodes style and adds it to the representation
+    """
+
+    def __init__(self, src_vocab, tgt_vocab, N=6,
+                 d_model=512, d_ff=2048, h=8, n_styles=2, dropout=0.1):
+        super().__init__()
+        c = copy.deepcopy
+        attn = MultiHeadedAttention(h, d_model)
+        ff = PositionwiseFeedForward(d_model, d_ff, dropout)
+        position = PositionalEncoding(d_model, dropout)
+        src_embed = Embeddings(d_model, src_vocab)
+        encoder = BasicEncoder(EncoderLayer(d_model, c(attn), c(ff), dropout), N)
+        style_embed = nn.Embedding(n_styles, d_model)
+        generator = nn.Linear(d_model, tgt_vocab)
+
+        self.src_embed = src_embed
+        self.encoder = encoder
+        self.position = position
+        self.style_embed = style_embed
+        self.generator = generator
+
+        # Initialize parameters with Glorot / fan_avg.
+        for p in self.parameters():
+            if p.dim() > 1:
+                nn.init.xavier_uniform_(p)
+
+    def encode_style(self, style_labels):
+        style_embadding = self.style_embed(style_labels).unsqueeze(1)
+        if style_embadding.ndimension() == 1:
+            style_embadding = style_embadding.unsqueeze(0).unsqueeze(1)
+        elif style_embadding.ndimension() == 2:
+            style_embadding = style_embadding.permute(1, 0).unsqueeze(0)
+        return style_embadding
+
+    def forward(self, src, src_mask, style):
+        "Take in and process masked src and target sequences."
+        style = self.style_embed(style).unsqueeze(dim=1)
+        src = self.src_embed(src)
+        src = self.position(src)
+        # add style before position?
+        x = src + style
+        enc_out = self.encoder(x, src_mask)
+        return self.generator(enc_out)
+
+
 def make_encoder_decoder(src_vocab, tgt_vocab, N=6,
                          d_model=512, d_ff=2048, h=8, n_styles=2, dropout=0.1):
     "Helper: Construct a model from hyperparameters."
@@ -326,6 +375,7 @@ def make_encoder_decoder(src_vocab, tgt_vocab, N=6,
         if p.dim() > 1:
             nn.init.xavier_uniform_(p)
     return encoder, decoder
+
 
 def load_pretrained_embedding_to_encoder(enc_model, embedding):
     ''' Helper function to modify encoder model embedding with pre-trained
