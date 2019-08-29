@@ -5,8 +5,6 @@ import time
 from datetime import timedelta
 
 import torch
-from torch.nn import functional as F
-
 
 class Loss(object):
 
@@ -22,7 +20,7 @@ class Loss(object):
         self.num_steps += 1.0
 
     def __call__(self):
-        return self.total_loss / self.num_steps
+        return self.total_loss / self.num_steps if self.num_steps else self.num_steps
 
     def reset(self):
         self.num_steps = 0.0
@@ -51,7 +49,7 @@ class AccuracyRec(object):
         self.correct += (predicted == targets).sum().item()
 
     def __call__(self):
-        return self.correct / self.total * 100.0
+        return self.correct / self.total * 100.0 if self.total else self.total
 
     def reset(self):
         self.correct = 0.0
@@ -72,21 +70,25 @@ class AccuracyCls(object):
         self.correct += (predicted == targets).sum().item()
 
     def __call__(self):
-        return self.correct / self.total * 100.0
+        return self.correct / self.total * 100.0 if self.total else self.total
 
     def reset(self):
         self.correct = 0.0
         self.total = 0.0
 
+
 def preict_labels(preds):
     return preds.detach().argmax(-1)
+
 
 def count_parameters(model):
     return sum(p.numel() for p in model.parameters() if p.requires_grad)
 
+
 def num_tokens(batch, pad_ind=1):
     batch = batch.detach().cpu().numpy()
     return len(np.where(batch != pad_ind)[0])
+
 
 def pprint_params(paramsObj):
     logging.info('Params for experiment:')
@@ -95,6 +97,7 @@ def pprint_params(paramsObj):
             pass
         else:
             logging.info("%s = %r" % (attr, getattr(paramsObj, attr)))
+
 
 class EarlyStopping:
     """Early stops the training if validation accuracy doesn't improve after a given patience."""
@@ -126,6 +129,7 @@ class EarlyStopping:
             self.best_score = score
             self.counter = 0
 
+
 class LogFormatter():
     def __init__(self):
         self.start_time = time.time()
@@ -141,6 +145,7 @@ class LogFormatter():
         message = record.getMessage()
         message = message.replace('\n', '\n' + ' ' * (len(prefix) + 3))
         return "%s - %s" % (prefix, message)
+
 
 def create_logger(params):
     # Create output folder
@@ -174,10 +179,10 @@ def create_logger(params):
     logger.addHandler(file_handler)
     logger.addHandler(console_handler)
 
-
     # reset logger elapsed time
     def reset_time():
         log_formatter.start_time = time.time()
+
     logger.reset_time = reset_time
 
     return logger, exp_folder
