@@ -3,8 +3,10 @@ import logging
 import os
 import time
 from datetime import timedelta
+from torch.nn import CosineSimilarity
 
 import torch
+
 
 class Loss(object):
 
@@ -186,3 +188,13 @@ def create_logger(params):
     logger.reset_time = reset_time
 
     return logger, exp_folder
+
+
+def preds_embedding_cosine_similarity(preds, embedding):
+    vocab_size = embedding.lut.num_embeddings
+    preds.unsqueeze_(-1)
+    preds = preds.expand(-1, -1, -1, vocab_size)
+    embeddings = embedding.lut.weight.transpose(0,1).unsqueeze(0).unsqueeze(0)
+    embeddings = embeddings.expand(preds.shape[0], preds.shape[1], -1, -1)
+    cosine_sim = CosineSimilarity(dim=2)
+    return cosine_sim(preds, embeddings)
