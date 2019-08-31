@@ -71,7 +71,7 @@ params = Params()
 logger = create_logger(params)
 pprint_params(params)
 
-TEXT, word_embeddings, train_iter, test_iter = load_dataset(params=params, device=params.device)
+TEXT, word_embeddings, train_iter, test_iter = load_dataset_from_csv(params=params, device=params.device)
 logging.info('Train dataset len: {} Test dataset len: {}'.format(len(train_iter.dataset), len(test_iter.dataset)))
 
 # Clear CUDA memory if needed
