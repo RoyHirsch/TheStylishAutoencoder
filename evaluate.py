@@ -180,7 +180,7 @@ def sent2str(sent_as_np, id2word, eos_id=None):
     return " ".join([id2word[i] for i in sent_as_np])
 
 
-def test_random_samples(data_iter, TEXT, model_dec, model_cls, device, decode_func=None, num_samples=2,
+def test_random_samples(dataset, TEXT, model_dec, model_cls, device, decode_func=None, num_samples=2,
                         transfer_style=True, trans_cls=False, embed_preds=False):
     ''' Print some sample text to validate the model.
         transfer_style - bool, if True apply style transfer '''
@@ -191,14 +191,14 @@ def test_random_samples(data_iter, TEXT, model_dec, model_cls, device, decode_fu
     model_dec.eval()
 
     with torch.no_grad():
-        for step, batch in enumerate(data_iter):
+        for _ in range(num_samples):
             if num_samples == 0: break
 
             # Prepare batch
-            sample_num = np.random.randint(0, len(batch))
-            src, labels = batch.text[sample_num], batch.label[sample_num]
-            src = src.unsqueeze(0)
-            labels = labels.unsqueeze(0)
+            sample_num = np.random.randint(0, len(dataset))
+            src, labels = dataset.__getitem__(sample_num).text, dataset.__getitem__(sample_num).label
+            labels = torch.tensor(int(labels)).unsqueeze(0)
+            src = torch.tensor([word2id[i] for i in src]).unsqueeze(0)
             src_mask, _ = make_masks(src, src, device)
 
             src = src.to(device)
