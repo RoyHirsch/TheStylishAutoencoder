@@ -66,11 +66,34 @@ def load_dataset(params, device):
 
     if data_source == 'IMDB':
         train_data, test_data = datasets.IMDB.splits(TEXT, LABEL)
+
     elif data_source == 'SST':
         train_data, test_data = datasets.SST.splits(TEXT, LABEL)
 
+    elif data_source == 'YELP':
+        fields_list = [('Unnamed: 0', None),
+                       ('Unnamed: 0.1', None),
+                       ('text', TEXT),
+                       ('label', LABEL)]
+
+        base_path = params.DATA_PATH
+        yelp_train_path = os.path.join(base_path, "yelp_train.csv")
+        yelp_test_path = os.path.join(base_path, "yelp_test.csv")
+
+        train_dataset = TabularDataset(
+            path=yelp_train_path,
+            format='csv',
+            skip_header=True,
+            fields=fields_list)
+
+        test_dataset = TabularDataset(
+            path=yelp_test_path,
+            format='csv',
+            skip_header=True,
+            fields=fields_list)
+
     if params.VOCAB_USE_GLOVE:
-        TEXT.build_vocab(train_data, test_data, min_freq=params.VOCAB_MIN_FREQ, vectors=GloVe(name='6B', dim=300))
+        TEXT.build_vocab(train_data, test_data, min_freq=params.VOCAB_MIN_FREQ, vectors=GloVe(name='6B', dim=params.H_DIM))
         logging.info("Loaded Glove embedding, Vector size of Text Vocabulary: " + str(TEXT.vocab.vectors.size()))
 
     else:
@@ -86,6 +109,7 @@ def load_dataset(params, device):
                                                        device=device)
     # Disable shuffle
     test_iter.shuffle = False
+
     return TEXT, word_embeddings, train_iter, test_iter
 
 
