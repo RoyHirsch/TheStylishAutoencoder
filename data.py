@@ -27,7 +27,7 @@ def make_masks(src, tgt, device, pad=1):
 
     # Add vector of one's for style embadding
     bs, max_len, h_size = tgt_mask.size()
-    tgt_mask = torch.cat((torch.ones(bs, max_len, 1).byte().to(device), tgt_mask), 2)
+    tgt_mask = torch.cat((torch.ones(bs, max_len, 1).byte().to(device), tgt_mask.byte()), 2)
     tgt_mask = tgt_mask[:, :, :-1]
 
     src_mask = (src != pad).unsqueeze(-2)
