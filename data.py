@@ -21,8 +21,8 @@ def subsequent_mask(size):
 
 def make_masks(src, tgt, device, pad=1):
     ''' Pad id in TEXT.vocab.stoi['<pad>'] = 1'''
-    tgt_mask = (tgt != pad).unsqueeze(-2)
-    tgt_mask = tgt_mask & subsequent_mask(tgt.size(-1)).type_as(tgt_mask.data)
+    src_mask = (src != pad).unsqueeze(-2)
+    tgt_mask = src_mask & subsequent_mask(tgt.size(-1)).type_as(src_mask.data)
     tgt_mask = tgt_mask.to(device)
 
     # Add vector of one's for style embadding
@@ -30,8 +30,20 @@ def make_masks(src, tgt, device, pad=1):
     tgt_mask = torch.cat((torch.ones(bs, max_len, 1).byte().to(device), tgt_mask.byte()), 2)
     tgt_mask = tgt_mask[:, :, :-1]
 
-    src_mask = (src != pad).unsqueeze(-2)
     return src_mask, tgt_mask
+
+
+def make_neg_masks(src, tgt, device, eos_id):
+    ''' Pad id in TEXT.vocab.stoi['<pad>'] = 1'''
+    src_mask = torch.ones_like(src)
+    for i in range(src.shape[0]):
+        eos_idx = src[i, :].index(eos_id)[0]
+        src_mask[i, eos_idx:] = 0
+    tgt_mask = src_mask & subsequent_mask(tgt.size(-1)).type_as(src_mask.data)
+    tgt_mask = tgt_mask.to(device)
+
+    return src_mask, tgt_mask
+
 
 
 def load_dataset(params, device):

@@ -380,6 +380,6 @@ def make_encoder_decoder(src_vocab, tgt_vocab, N=6,
 def load_pretrained_embedding_to_encoder(enc_model, embedding):
     ''' Helper function to modify encoder model embedding with pre-trained
         embedding like Glove. '''
-    enc_model.src_embed[0].lut.weight.data.copy_(embedding)
+    enc_model.src_embed.lut.weight.data.copy_(embedding)
     print('Loaded pre-calculated Glove embedding')
     return enc_model
