@@ -614,7 +614,7 @@ def run_epoch_true_neg(epoch, data_iter, model_dec, opt_dec,
         src_mask = src_mask.to(device)
         labels = labels.to(device)
 
-        if curr_phase == 0:  # training the classifier
+        if curr_phase == 1:  # training the classifier
             train_true_neg_cls_step(model_dec, model_cls, cls_criteria,
                                     opt_cls, src, src_mask, labels, cls_running_loss,
                                     cls_acc, trans_cls=params.TRANS_CLS)
@@ -623,15 +623,14 @@ def run_epoch_true_neg(epoch, data_iter, model_dec, opt_dec,
                 if verbose:
                     logging.info(
                         "e-{},s-{}: Trained cls loss {} acc {}".format(epoch, step, cls_running_loss(),
-                                                                       cls_acc()))
+                                                                        cls_acc()))
                 cls_running_loss.reset()
-                curr_cls_acc = cls_acc()
-                cls_acc.reset()
                 curr_step = 0
-                if curr_cls_acc >= params.CLS_ACC_BAR:
+                if cls_acc() >= params.CLS_ACC_BAR:
                     curr_phase = curr_phase + 1
+                cls_acc.reset()
 
-        elif curr_phase == 1:
+        elif curr_phase == 0:
             train_true_label_step(model_dec, seq2seq_criteria, model_cls, opt_dec, opt_cls,
                                   cls_criteria, src, src_mask, labels, cls_running_loss, cls_acc,
                                   rec_running_loss, rec_lambda=params.TRUE_REC_LAMBDA,
@@ -642,19 +641,19 @@ def run_epoch_true_neg(epoch, data_iter, model_dec, opt_dec,
                 if verbose:
                     logging.info(
                         "e-{},s-{}: Trained transformer on true label, rec_loss {}".format(epoch,
-                                                                                           step,
-                                                                                           rec_running_loss()))
-                curr_rec_loss = rec_running_loss()
-                rec_running_loss.reset()
+                                                                                            step,
+                                                                                            rec_running_loss()))
                 curr_step = 0
-                if curr_rec_loss < params.REC_LOSS_BAR:
+                if rec_running_loss() < params.REC_LOSS_BAR:
                     curr_phase = curr_phase + 1
+                rec_running_loss.reset()
 
         else:
             train_neg_label_step(model_dec, seq2seq_criteria, model_cls, cls_criteria,
                                  opt_dec, src, src_mask, labels, rec_running_loss, cls_running_loss,
                                  cls_acc, trans_cls=params.TRANS_CLS,
                                  rec_lambda=params.NEG_REC_LAMBDA, cls_lambda=params.NEG_CLS_LAMBDA)
+
             curr_step += 1
             if curr_step == period_steps:
                 if verbose:
@@ -666,6 +665,8 @@ def run_epoch_true_neg(epoch, data_iter, model_dec, opt_dec,
                             cls_acc(),
                             rec_running_loss()))
                 cls_running_loss.reset()
-                cls_acc.reset()
                 curr_step = 0
-                curr_phase = 0
+                if cls_acc() >= params.NEG_CLS_ACC_BAR:
+                    curr_phase = 0
+                cls_acc.reset()
+                rec_running_loss.reset()
