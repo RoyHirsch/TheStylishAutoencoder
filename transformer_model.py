@@ -7,44 +7,6 @@ from torch.autograd import Variable
 import torch.nn as nn
 
 
-class EncoderDecoder(nn.Module):
-    """
-    A standard Encoder-Decoder architecture. Base for this and many
-    other models.
-    """
-
-    def __init__(self, encoder, decoder, src_embed, style_embed, generator):
-        super(EncoderDecoder, self).__init__()
-        # src and tgt have the same embadding
-        self.encoder = encoder
-        self.decoder = decoder
-        self.src_embed = src_embed
-        self.tgt_embed = src_embed
-        self.style_embed = style_embed
-        self.generator = generator
-
-        self.enc_out = None
-
-    def forward(self, src, tgt, src_mask, tgt_mask):
-        "Take in and process masked src and target sequences."
-        self.enc_out = self.encode(src, src_mask)
-        return self.decode(self.enc_out, src_mask,
-                           tgt, tgt_mask)
-
-    def encode(self, src, src_mask):
-        return self.encoder(self.src_embed(src), src_mask)
-
-    def decode(self, memory, src_mask, tgt, tgt_mask):
-        return self.decoder(self.tgt_embed(tgt), memory, src_mask, tgt_mask)
-
-    def decode_with_style(self, encode_out, style_preds, src_mask, tgt, tgt_mask):
-        ''' Add style emb to memory and decode '''
-        memory = torch.cat((encode_out, self.style_embed(style_preds).unsqueeze(1)), 1)
-        # Dump last state
-        memory = memory[:, :-1, :]
-        return self.decoder(self.tgt_embed(tgt), memory, src_mask, tgt_mask)
-
-
 class Generator(nn.Module):
     "Define standard linear + softmax generation step."
 
@@ -184,25 +146,6 @@ class MultiHeadedAttention(nn.Module):
         return self.linears[-1](x)
 
 
-class DecoderLayer(nn.Module):
-    "Decoder is made of self-attn, src-attn, and feed forward (defined below)"
-
-    def __init__(self, size, self_attn, src_attn, feed_forward, dropout):
-        super(DecoderLayer, self).__init__()
-        self.size = size
-        self.self_attn = self_attn
-        self.src_attn = src_attn
-        self.feed_forward = feed_forward
-        self.sublayer = clones(SublayerConnection(size, dropout), 3)
-
-    def forward(self, x, memory, src_mask, tgt_mask):
-        "Follow Figure 1 (right) for connections."
-        m = memory
-        x = self.sublayer[0](x, lambda x: self.self_attn(x, x, x, tgt_mask))
-        x = self.sublayer[1](x, lambda x: self.src_attn(x, m, m, src_mask))
-        return self.sublayer[2](x, self.feed_forward)
-
-
 class EncoderLayer(nn.Module):
     "Encoder is made up of self-attn and feed forward (defined below)"
 
@@ -217,20 +160,6 @@ class EncoderLayer(nn.Module):
         "Follow Figure 1 (left) for connections."
         x = self.sublayer[0](x, lambda x: self.self_attn(x, x, x, mask))
         return self.sublayer[1](x, self.feed_forward)
-
-
-class BasicDecoder(nn.Module):
-    "Generic N layer decoder with masking."
-
-    def __init__(self, layer, N):
-        super(BasicDecoder, self).__init__()
-        self.layers = clones(layer, N)
-        self.norm = LayerNorm(layer.size)
-
-    def forward(self, x, memory, src_mask, tgt_mask):
-        for layer in self.layers:
-            x = layer(x, memory, src_mask, tgt_mask)
-        return self.norm(x)
 
 
 class BasicEncoder(nn.Module):
@@ -248,54 +177,22 @@ class BasicEncoder(nn.Module):
         return self.norm(x)
 
 
-class Encoder(nn.Module):
-    """
-    A fully functional Encoder, including embedding layer
-    """
+class ArgMaxEmbed(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx, inputs, embed):
+        idx = torch.argmax(inputs, -1)
+        ctx._input_shape = inputs.shape
+        ctx._input_dtype = inputs.dtype
+        ctx._input_device = inputs.device
+        ctx.save_for_backward(idx)
+        return embed(idx)
 
-    def __init__(self, encoder, src_embed):
-        super(Encoder, self).__init__()
-        self.encoder = encoder
-        self.src_embed = src_embed
-
-    def forward(self, src, src_mask):
-        "Take in and process masked src and target sequences."
-        return self.encoder(self.src_embed(src), src_mask)
-
-
-class StyleDecoder(nn.Module):
-    """
-    A fully functional decoder from context and style, including language
-    embedding layer and style embedding layer
-    """
-
-    def __init__(self, decoder, tgt_embed, style_embed, generator):
-        super(StyleDecoder, self).__init__()
-        self.decoder = decoder
-        self.src_embed = tgt_embed
-        self.style_embed = style_embed
-        self.generator = generator
-
-    def forward(self, enc_out, style_preds, src_mask, tgt, tgt_mask):
-        "Take in and process masked src and target sequences."
-
-        add_embadding = self.style_embed(style_preds).unsqueeze(1)
-        if add_embadding.ndimension() == 1:
-            add_embadding = add_embadding.unsqueeze(0).unsqueeze(1)
-
-        elif add_embadding.ndimension() == 2:
-            add_embadding = add_embadding.permute(1, 0).unsqueeze(0)
-
-        # Concatenate the style vector at the beginning of the sequence
-        # Add the same to the target for complete supervision
-        # TODO: validate (Roy)
-        memory = torch.cat((add_embadding, enc_out), 1)
-        memory = memory[:, :-1, :]  # Dump last state
-
-        tgt_modified = torch.cat((add_embadding, self.src_embed(tgt)), 1)
-        tgt_modified = tgt_modified[:, :-1, :]
-        dec_out = self.decoder(tgt_modified, memory, src_mask, tgt_mask)
-        return self.generator(dec_out)
+    @staticmethod
+    def backward(ctx, grad_output):
+        idx, = ctx.saved_tensors
+        grad_input = torch.zeros(ctx._input_shape, device=ctx._input_device, dtype=ctx._input_dtype)
+        grad_input.scatter_(-1, idx[..., None], grad_output.sum(-1, keepdim=True))
+        return grad_input, None
 
 
 class StyleTransformer(nn.Module):
@@ -304,22 +201,18 @@ class StyleTransformer(nn.Module):
     """
 
     def __init__(self, src_vocab, tgt_vocab, N=6,
-                 d_model=512, d_ff=2048, h=8, n_styles=2, dropout=0.1):
+                 d_model=512, d_ff=2048, h=8, n_styles=2, dropout=0.1, max_len=128):
         super().__init__()
         c = copy.deepcopy
         attn = MultiHeadedAttention(h, d_model)
         ff = PositionwiseFeedForward(d_model, d_ff, dropout)
-        position = PositionalEncoding(d_model, dropout)
-        src_embed = Embeddings(d_model, src_vocab)
-        encoder = BasicEncoder(EncoderLayer(d_model, c(attn), c(ff), dropout), N)
-        style_embed = nn.Embedding(n_styles, d_model)
-        generator = nn.Linear(d_model, tgt_vocab)
 
-        self.src_embed = src_embed
-        self.encoder = encoder
-        self.position = position
-        self.style_embed = style_embed
-        self.generator = generator
+        self.src_embed = Embeddings(d_model, src_vocab)
+        self.argmax = ArgMaxEmbed.apply
+        self.encoder = BasicEncoder(EncoderLayer(d_model, c(attn), c(ff), dropout), N)
+        self.position = PositionalEncoding(d_model, dropout, max_len)
+        self.style_embed = nn.Embedding(n_styles, d_model)
+        self.generator = nn.Linear(d_model, tgt_vocab)
 
         # Initialize parameters with Glorot / fan_avg.
         for p in self.parameters():
@@ -334,52 +227,15 @@ class StyleTransformer(nn.Module):
             style_embadding = style_embadding.permute(1, 0).unsqueeze(0)
         return style_embadding
 
-    def forward(self, src, src_mask, style):
+    def forward(self, src, src_mask, style, argmax=False):
         "Take in and process masked src and target sequences."
         style = self.style_embed(style).unsqueeze(dim=1)
-        src = self.src_embed(src)
+        if argmax:
+            src = self.argmax(src, self.src_embed)
+        else:
+            src = self.src_embed(src)
         src = self.position(src)
         # add style before position?
         x = src + style
         enc_out = self.encoder(x, src_mask)
         return self.generator(enc_out)
-
-
-def make_encoder_decoder(src_vocab, tgt_vocab, N=6,
-                         d_model=512, d_ff=2048, h=8, n_styles=2, dropout=0.1):
-    "Helper: Construct a model from hyperparameters."
-    c = copy.deepcopy
-    attn = MultiHeadedAttention(h, d_model)
-    ff = PositionwiseFeedForward(d_model, d_ff, dropout)
-    position = PositionalEncoding(d_model, dropout)
-    embedding = nn.Sequential(Embeddings(d_model, src_vocab), c(position))
-
-    encoder = Encoder(
-        BasicEncoder(EncoderLayer(d_model, c(attn), c(ff), dropout), N),
-        embedding
-    )
-    decoder = StyleDecoder(
-        BasicDecoder(DecoderLayer(d_model, c(attn), c(attn),
-                                  c(ff), dropout), N),
-        embedding,
-        nn.Embedding(n_styles, d_model),
-        Generator(d_model, tgt_vocab)
-    )
-
-    # This was important from their code.
-    # Initialize parameters with Glorot / fan_avg.
-    for p in encoder.parameters():
-        if p.dim() > 1:
-            nn.init.xavier_uniform_(p)
-    for p in decoder.parameters():
-        if p.dim() > 1:
-            nn.init.xavier_uniform_(p)
-    return encoder, decoder
-
-
-def load_pretrained_embedding_to_encoder(enc_model, embedding):
-    ''' Helper function to modify encoder model embedding with pre-trained
-        embedding like Glove. '''
-    enc_model.src_embed.lut.weight.data.copy_(embedding)
-    print('Loaded pre-calculated Glove embedding')
-    return enc_model

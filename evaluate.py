@@ -1,12 +1,10 @@
 import numpy as np
 import copy
 import logging
-
 import torch
 
 from data import make_masks
 from utils import AccuracyCls, AccuracyRec, Loss, preds_embedding_cosine_similarity
-import math
 
 
 def evaluate(epoch, data_iter, model_enc, model_dec,
@@ -73,96 +71,13 @@ def evaluate(epoch, data_iter, model_enc, model_dec,
     return rec_acc
 
 
-def evaluate_true_neg(epoch, data_iter, model_dec,
-                      model_cls, cls_criteria, seq2seq_criteria,
-                      params):
-    ''' Evaluate performances over test/validation dataloader '''
-
-    device = params.device
-    trans_cls = params.TRANS_CLS
-
-    model_cls.eval()
-    model_dec.eval()
-
-    cls_running_loss = Loss()
-    rec_running_loss = Loss()
-
-    cls_acc = AccuracyCls()
-
-    with torch.no_grad():
-        for i, batch in enumerate(data_iter):
-            if params.TEST_MAX_BATCH_SIZE and i == params.TEST_MAX_BATCH_SIZE:
-                break
-
-            # Prepare batch
-            src, labels = batch.text, batch.label
-            src_mask, _ = make_masks(src, src, device)
-
-            src = src.to(device)
-            src_mask = src_mask.to(device)
-            labels = labels.to(device)
-
-            # Rec loss
-            preds = model_dec(src, src_mask, labels)
-            src_embeds = model_dec.src_embed(src)
-            rec_loss = seq2seq_criteria(src_embeds, preds, src)
-            rec_running_loss.update(rec_loss)
-
-            # Classifier loss
-            if trans_cls:
-                cls_preds = model_cls(preds, src_mask)
-            else:
-                cls_preds = model_cls(preds)
-
-            cls_loss = cls_criteria(cls_preds, labels)
-            cls_acc.update(cls_preds, labels)
-            cls_running_loss.update(cls_loss)
-
-    logging.info("Eval-e-{}: loss cls: {:.3f}, acc cls: {:.3f}ת loss rec: {:.3f}".format(epoch, cls_running_loss(),
-                                                                                         cls_acc(), rec_running_loss()))
-
-
 def greedy_decode_sent(preds, id2word, eos_id):
     ''' Nauve greedy decoding - just argmax over the vocabulary distribution '''
-    preds = preds.squeeze(0).detach().cpu().numpy()
-    preds = np.argmax(preds, -1)
-    decoded_sent = sent2str(preds, id2word, eos_id)
-    return decoded_sent
-
-
-def softmax(x):
-    """Compute softmax values for each sets of scores in x."""
-    return np.exp(x) / np.sum(np.exp(x), axis=1, keepdims=True)
-
-
-def beam_search_decoder(preds, id2word, eos_id):
-    bean_size = 5
-
-    # [ max_len, vocab_size ]
-    # from logits to probs
-    preds = preds.squeeze(0).detach().cpu().numpy()
-    preds = softmax(preds)
-
-    sequences = [[list(), 1.0]]
-    # walk over each step in sequence
-    for row in preds:
-        all_candidates = list()
-        # expand each current candidate
-        for i in range(len(sequences)):
-            seq, score = sequences[i]
-            for j in range(len(row)):
-                candidate = [seq + [j], score * -math.log(row[j])]
-                all_candidates.append(candidate)
-
-        ordered = sorted(all_candidates, key=lambda tup: tup[1])
-        # select k best
-        sequences = ordered[:bean_size]
-
-    # Select the best scores sentence
-    best_seq = sequences[-1][0]
-    decoded_sent = sent2str(np.array(best_seq), id2word, eos_id)
-
-    return decoded_sent
+    preds = torch.argmax(preds, -1)
+    decoded_sent = preds.squeeze(0).detach().cpu().numpy()
+    # print(" ".join([id2word[i] for i in decoded_sent]))
+    decoded_sent = sent2str(decoded_sent, id2word, eos_id)
+    return decoded_sent, preds
 
 
 def sent2str(sent_as_np, id2word, eos_id=None):
@@ -180,7 +95,7 @@ def sent2str(sent_as_np, id2word, eos_id=None):
     return " ".join([id2word[i] for i in sent_as_np])
 
 
-def test_random_samples(dataset, TEXT, model_dec, model_cls, device, decode_func=None, num_samples=2,
+def test_random_samples(data_iter, TEXT, model_gen, model_cls, device, src_embed=None, decode_func=None, num_samples=2,
                         transfer_style=True, trans_cls=False, embed_preds=False):
     ''' Print some sample text to validate the model.
         transfer_style - bool, if True apply style transfer '''
@@ -188,17 +103,16 @@ def test_random_samples(dataset, TEXT, model_dec, model_cls, device, decode_func
     word2id = TEXT.vocab.stoi
     eos_id = int(word2id['<eos>'])
     id2word = {v: k for k, v in word2id.items()}
-    model_dec.eval()
+    model_gen.eval()
 
     with torch.no_grad():
-        for _ in range(num_samples):
+        for step, batch in enumerate(data_iter):
             if num_samples == 0: break
 
             # Prepare batch
-            sample_num = np.random.randint(0, len(dataset))
-            src, labels = dataset.__getitem__(sample_num).text, dataset.__getitem__(sample_num).label
-            labels = torch.tensor(int(labels)).unsqueeze(0)
-            src = torch.tensor([word2id[i] for i in src]).unsqueeze(0)
+            src, labels = batch.text[0, ...], batch.label[0, ...]
+            src = src.unsqueeze(0)
+            labels = labels.unsqueeze(0)
             src_mask, _ = make_masks(src, src, device)
 
             src = src.to(device)
@@ -208,15 +122,13 @@ def test_random_samples(dataset, TEXT, model_dec, model_cls, device, decode_func
 
             # Logical not on labels if transfer_style is set
             if transfer_style:
-                labels = ~labels.byte()
-                labels = labels.long()
-
-            preds = model_dec(src, src_mask, labels)
-
-            if trans_cls:
-                cls_preds = model_cls(preds, src_mask)
+                labels = (~labels.bool()).long()
+            # print("Original label ", true_labels, " Transfer label ", labels)
+            if src_embed:
+                embeds = src_embed(src)
+                preds = model_gen(embeds, src_mask, labels)
             else:
-                cls_preds = model_cls(preds)
+                preds = model_gen(src, src_mask, labels)
 
             sent_as_list = src.squeeze(0).detach().cpu().numpy()
             src_sent = sent2str(sent_as_list, id2word, eos_id)
@@ -224,11 +136,17 @@ def test_random_samples(dataset, TEXT, model_dec, model_cls, device, decode_func
             logging.info('Original: text: {}'.format(src_sent))
             logging.info('Original: class: {}'.format(src_label))
 
-            pred_label = 'pos' if torch.argmax(cls_preds) == 1 else 'neg'
             if embed_preds:
-                preds = preds_embedding_cosine_similarity(preds, model_dec.src_embed)
+                preds = preds_embedding_cosine_similarity(preds, model_gen.src_embed)
             if decode_func:
-                dec_sent = decode_func(preds, id2word, eos_id)
+                dec_sent, decoded = decode_func(preds, id2word, eos_id)
+                if src_embed:
+                    decoded = src_embed(decoded)
+                if trans_cls:
+                    cls_preds = model_cls(decoded, src_mask)
+                else:
+                    cls_preds = model_cls(decoded)
+                pred_label = 'pos' if torch.argmax(cls_preds) == 1 else 'neg'
                 if transfer_style:
                     logging.info('Style transfer output:')
                 logging.info('Predicted: text: {}'.format(dec_sent))
@@ -239,3 +157,66 @@ def test_random_samples(dataset, TEXT, model_dec, model_cls, device, decode_func
             logging.info('\n')
 
             num_samples -= 1
+
+
+"""
+TODO: fix
+def test_user_string(sent, label, TEXT, model_gen, model_cls, device, decode_func=None,
+                     transfer_style=True, trans_cls=False, embed_preds=False):
+    ''' Print some sample text to validate the model.
+        transfer_style - bool, if True apply style transfer '''
+
+    word2id = TEXT.vocab.stoi
+    eos_id = int(word2id['<eos>'])
+    id2word = {v: k for k, v in word2id.items()}
+    # define tokenizer
+    en = English()
+
+    def id_tokenize(sentence):
+        return [word2id[tok.text] for tok in en.tokenizer(sentence)]
+
+    model_gen.eval()
+
+    with torch.no_grad():
+        # Prepare batch
+
+        token_ids = id_tokenize[sent]
+        src = torch.LongTensor(token_ids)
+        labels = torch.LongTensor(label).unsqueeze(0)
+        src_mask, _ = make_masks(src, src, device)
+
+        src = src.to(device)
+        src_mask = src_mask.to(device)
+        labels = labels.to(device)
+        true_labels = copy.deepcopy(labels)
+
+        # Logical not on labels if transfer_style is set
+        if transfer_style:
+            labels = (~labels.byte()).long()
+        print(labels, true_labels)
+
+        preds = model_gen(src, src_mask, labels)
+
+        src_label = 'pos' if true_labels.detach().item() == 1 else 'neg'
+        logging.info(f'Original: text: {src_sent}')
+        logging.info('Original: class: {}'.format(src_label))
+
+        if embed_preds:
+            preds = preds_embedding_cosine_similarity(preds, model_gen.src_embed)
+        if decode_func:
+            dec_sent, decoded = decode_func(preds, id2word, eos_id)
+            preds_for_cls = model_gen.src_embed(decoded)
+            if trans_cls:
+                cls_preds = model_cls(preds_for_cls, src_mask)
+            else:
+                cls_preds = model_cls(preds_for_cls)
+            pred_label = 'pos' if torch.argmax(cls_preds) == 1 else 'neg'
+            if transfer_style:
+                logging.info('Style transfer output:')
+            logging.info('Predicted: text: {}'.format(dec_sent))
+            logging.info('Predicted: class: {}'.format(pred_label))
+
+        else:
+            logging.info('Predicted: class: {}'.format(pred_label))
+        logging.info('\n')
+"""
