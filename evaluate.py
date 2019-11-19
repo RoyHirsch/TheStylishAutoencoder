@@ -159,6 +159,76 @@ def test_random_samples(data_iter, TEXT, model_gen, model_cls, device, src_embed
             num_samples -= 1
 
 
+def tensor2text(vocab, tensor):
+    tensor = tensor.cpu().detach().numpy()
+    text = []
+    index2word = vocab.itos
+    eos_idx = vocab.stoi['<eos>']
+
+    # unk_idx = vocab.stoi['<unk>']
+    # stop_idxs = [vocab.stoi['!'], vocab.stoi['.'], vocab.stoi['?']]
+
+    for sample in tensor:
+      end_id = np.where(sample == eos_idx)[0]
+      if len(end_id) > 1:
+          sample = sample[:int(end_id[0])]
+      elif len(end_id) == 1:
+          sample = sample[:int(end_id)]
+
+      text.append(" ".join([index2word[i] for i in sample]))
+    return text
+
+def generate_sentences(model_gen, data_iter, TEXT, params, limit=None):
+  device = params.device
+  vocab = TEXT.vocab
+
+  model_gen = model_gen.to(device)
+  model_gen.eval()
+
+  test_generated_senteces = []
+  test_original_senteces = []
+  with torch.no_grad():
+      for i, batch in enumerate(data_iter):
+
+          # Prepare batch
+          src, labels = batch.text, batch.label
+          src_mask, _ = make_masks(src, src, device)
+          src = src.to(device)
+          src_mask = src_mask.to(device)
+          labels = labels.to(device)
+
+          # Negate labels
+          neg_labels = (~labels.bool()).long()
+
+          # Predict generated senteces
+          preds = model_gen(src, src_mask, neg_labels)
+          preds = torch.argmax(preds, dim=-1)
+
+          # From preds to text - greedy decode
+          test_generated_senteces += tensor2text(vocab, preds)
+          test_original_senteces += tensor2text(vocab, src)
+
+          if limit and i == (limit - 1):
+            break
+  return test_generated_senteces, test_original_senteces
+
+def print_generated_test_samples(model_gen, data_iter, TEXT, params, num_senteces=10):
+  num_batches = math.ceil(float(num_senteces) / test_iter.batch_size)
+  test_generated_senteces, test_original_senteces = generate_sentences(model_gen, data_iter, TEXT, params, num_batches)
+
+  for org, gen in zip(test_generated_senteces[:num_senteces], test_original_senteces[:num_senteces]):
+    print('Original: ' + org)
+    print('Generated: ' + gen + '\n')
+
+def generate_senteces_to_text_file(model_gen, data_iter, TEXT, params, out_dir, file_name, limit=None):
+  test_generated_senteces, test_original_senteces = generate_sentences(model_gen, data_iter, TEXT, params, limit)
+
+  if not os.path.exists(out_dir):
+    os.makedirs(out_dir)
+
+  with open(os.path.join(out_dir, file_name), 'w') as f:
+    for sent in test_generated_senteces:
+      f.write("%s\n" % sent)
 """
 TODO: fix
 def test_user_string(sent, label, TEXT, model_gen, model_cls, device, decode_func=None,
