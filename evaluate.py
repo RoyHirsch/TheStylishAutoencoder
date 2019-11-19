@@ -2,6 +2,9 @@ import numpy as np
 import copy
 import logging
 import torch
+import os
+import pandas as pd
+import math
 
 from data import make_masks
 from utils import AccuracyCls, AccuracyRec, Loss, preds_embedding_cosine_similarity
@@ -185,8 +188,9 @@ def generate_sentences(model_gen, data_iter, TEXT, params, limit=None):
   model_gen = model_gen.to(device)
   model_gen.eval()
 
-  test_generated_senteces = []
-  test_original_senteces = []
+  test_generated_sentences = []
+  test_original_sentences = []
+  test_original_labels = []
   with torch.no_grad():
       for i, batch in enumerate(data_iter):
 
@@ -205,31 +209,32 @@ def generate_sentences(model_gen, data_iter, TEXT, params, limit=None):
           preds = torch.argmax(preds, dim=-1)
 
           # From preds to text - greedy decode
-          test_generated_senteces += tensor2text(vocab, preds)
-          test_original_senteces += tensor2text(vocab, src)
-
+          test_generated_sentences += tensor2text(vocab, preds)
+          test_original_sentences += tensor2text(vocab, src)
+          test_original_labels += labels
           if limit and i == (limit - 1):
             break
-  return test_generated_senteces, test_original_senteces
+  return test_generated_sentences, test_original_sentences, test_original_labels
 
 def print_generated_test_samples(model_gen, data_iter, TEXT, params, num_senteces=10):
-  num_batches = math.ceil(float(num_senteces) / test_iter.batch_size)
-  test_generated_senteces, test_original_senteces = generate_sentences(model_gen, data_iter, TEXT, params, num_batches)
+  num_batches = math.ceil(float(num_senteces) / data_iter.batch_size)
+  test_generated_sentences, test_original_sentences, _ = generate_sentences(model_gen, data_iter, TEXT, params, num_batches)
 
-  for org, gen in zip(test_generated_senteces[:num_senteces], test_original_senteces[:num_senteces]):
+  for gen, org in zip(test_generated_sentences[:num_senteces], test_original_sentences[:num_senteces]):
     print('Original: ' + org)
     print('Generated: ' + gen + '\n')
 
-def generate_senteces_to_text_file(model_gen, data_iter, TEXT, params, out_dir, file_name, limit=None):
-  test_generated_senteces, test_original_senteces = generate_sentences(model_gen, data_iter, TEXT, params, limit)
+def generate_senteces_to_csv(model_gen, data_iter, TEXT, params, out_dir, file_name, limit=None):
+  test_generated_sentences, test_original_sentences, test_original_labels = generate_sentences(model_gen, data_iter, TEXT, params, limit)
 
   if not os.path.exists(out_dir):
     os.makedirs(out_dir)
 
-  with open(os.path.join(out_dir, file_name), 'w') as f:
-    for sent in test_generated_senteces:
-      f.write("%s\n" % sent)
-"""
+  data = np.array([test_generated_sentences, test_original_sentences, test_original_labels]).T
+  df = pd.DataFrame(data, columns=["generated_sentences", "original_sentences", "original_labels"])
+  df.to_csv(os.path.join(out_dir, file_name))
+
+  """
 TODO: fix
 def test_user_string(sent, label, TEXT, model_gen, model_cls, device, decode_func=None,
                      transfer_style=True, trans_cls=False, embed_preds=False):
