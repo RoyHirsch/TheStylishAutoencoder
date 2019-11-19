@@ -1,1 +1,1 @@
-{"25": 25, "1": 1, "300": 300, "64": 64, "9404": 9404, "5": 5}
+{"max_len": 25, "min_freq": 1, "embed_dim": 300, "batch_size": 64, "input_dim": 9404, "out_dim": 1, "n_epochs": 3, "pad_idx": 1}
