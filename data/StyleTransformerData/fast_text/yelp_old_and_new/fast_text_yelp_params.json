@@ -1,0 +1,1 @@
+{"max_len": 25, "min_freq": 1, "embed_dim": 300, "batch_size": 64, "input_dim": 30003, "out_dim": 1, "n_epochs": 3, "pad_idx": 1}
