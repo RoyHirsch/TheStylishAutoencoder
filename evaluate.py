@@ -211,7 +211,7 @@ def generate_sentences(model_gen, data_iter, TEXT, params, limit=None):
           # From preds to text - greedy decode
           test_generated_sentences += tensor2text(vocab, preds)
           test_original_sentences += tensor2text(vocab, src)
-          test_original_labels += labels
+          test_original_labels += labels.detach().cpu().tolist()
           if limit and i == (limit - 1):
             break
   return test_generated_sentences, test_original_sentences, test_original_labels
