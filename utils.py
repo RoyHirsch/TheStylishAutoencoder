@@ -149,45 +149,47 @@ class LogFormatter():
         return "%s - %s" % (prefix, message)
 
 
-def create_logger(params):
-    # Create output folder
-    exp_name = params.EXP_NAME
-    root = params.DATA_PATH
+def create_logger(log_dir, dump=False):
+    log_dir = str(log_dir)
+    filepath = os.path.join(str(log_dir), 'net_launcher_log.log')
 
-    exp_folder = os.path.join(root, exp_name)
-    filepath = os.path.join(root, exp_name, '{}.log'.format(params.EXP_NAME))
+    if not os.path.exists(log_dir):
+        os.makedirs(log_dir)
 
-    if not os.path.exists(exp_folder):
-        os.makedirs(exp_folder)
+    # # Safety check
+    # if os.path.exists(filepath) and opt.checkpoint == "":
+    #     logging.warning("Experiment already exists!")
 
     # Create logger
     log_formatter = LogFormatter()
 
-    # create file handler and set level to debug
-    file_handler = logging.FileHandler(filepath, "a")
-    file_handler.setLevel(logging.DEBUG)
-    file_handler.setFormatter(log_formatter)
+    if dump:
+        # create file handler and set level to info
+        file_handler = logging.FileHandler(filepath, "a")
+        file_handler.setLevel(logging.INFO)
+        file_handler.setFormatter(log_formatter)
 
     # create console handler and set level to info
     console_handler = logging.StreamHandler()
     console_handler.setLevel(logging.INFO)
     console_handler.setFormatter(log_formatter)
 
-    # create logger and set level to debug
+    # create logger and set level to info
     logger = logging.getLogger()
     logger.handlers = []
-    logger.setLevel(logging.DEBUG)
+    logger.setLevel(logging.INFO)
     logger.propagate = False
-    logger.addHandler(file_handler)
+    if dump:
+        logger.addHandler(file_handler)
     logger.addHandler(console_handler)
 
     # reset logger elapsed time
     def reset_time():
         log_formatter.start_time = time.time()
-
     logger.reset_time = reset_time
 
-    return logger, exp_folder
+    logger.info('Created main log at ' + str(filepath))
+    return logger
 
 
 def preds_embedding_cosine_similarity(preds, embedding):
