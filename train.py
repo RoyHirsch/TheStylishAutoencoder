@@ -2,9 +2,9 @@ import logging
 import torch
 import torch.nn as nn
 
-from data import make_masks
+from data import make_masks, mask_tokens
 from transformer_model import StyleTransformer
-from classifier_model import TransformerClassifier
+from classifier_model import TransformerClassifier, TransformerClassifierAndLM
 from utils import AccuracyCls, AccuracyRec, Loss
 
 """
@@ -116,9 +116,9 @@ def init_models(vocab_size, params, word_embeddings=None):
                                  N=params.N_LAYERS, d_model=params.H_DIM, d_ff=params.FC_DIM,
                                  h=params.N_ATTN_HEAD, n_styles=params.N_STYLES, dropout=params.DO_RATE,
                                  max_len=params.MAX_LEN)
-    model_cls = TransformerClassifier(output_size=params.N_STYLES, N=params.N_LAYERS_CLS, d_model=params.H_DIM,
+    model_cls = TransformerClassifierAndLM(output_size=params.N_STYLES, N=params.N_LAYERS_CLS, d_model=params.H_DIM,
                                       d_ff=params.FC_DIM, h=params.N_ATTN_HEAD, dropout=params.DO_RATE_CLS,
-                                      input_size=vocab_size, max_len=params.MAX_LEN)
+                                      input_size=vocab_size, vocab_size=vocab_size, max_len=params.MAX_LEN)
 
     if word_embeddings is not None:
         load_pretrained_embedding_to_encoder(model_gen.src_embed, word_embeddings)
@@ -153,20 +153,31 @@ Training Functions
 """
 
 
-def train_cls_step(model_cls, cls_criteria,
-                   opt_cls, src, src_mask, labels, cls_running_loss,
-                   cls_acc, trans_cls=False):
-    # classifier loss
+def train_cls_step(model_cls, cls_criteria, mlm_criteria,
+                   opt_cls, src, src_mask, labels, cls_running_loss, mlm_running_loss,
+                   cls_acc, mlm_acc, TEXT, w_mlm_loss=1.0, trans_cls=False):
+
+    vocab_size = len(TEXT.vocab.stoi)
+    mlm_src, mlm_labels = mask_tokens(src, mlm_probability=0.15,
+                                      mask_token_id=TEXT.vocab.stoi['[MASK]'],
+                                      pad_token_id=TEXT.vocab.stoi['<pad>'])
     if trans_cls:
-        cls_preds = model_cls(src, src_mask, argmax=False)
+        cls_preds, mlm_preds = model_cls.forward_cls_and_lm(mlm_src, src_mask, argmax=False)
     else:
-        cls_preds = model_cls(src)
+        cls_preds, mlm_preds = model_cls.forward_cls_and_lm(mlm_src, src_mask, argmax=False)
 
     opt_cls.zero_grad()
     cls_loss = cls_criteria(cls_preds, labels)
+    mlm_loss = mlm_criteria(mlm_preds.view(-1, vocab_size), mlm_labels.view(-1))
+
     cls_acc.update(cls_preds, labels)
+    mlm_acc.update(mlm_preds.view(-1, vocab_size), mlm_labels.view(-1))
+
     cls_running_loss.update(cls_loss)
-    cls_loss.backward()
+    mlm_running_loss.update(mlm_loss)
+
+    loss = cls_loss + w_mlm_loss * mlm_loss
+    loss.backward()
     opt_cls.step()
 
 
@@ -303,13 +314,15 @@ def train_gen_on_rec_loss(train_iter, model_gen, opt_gen, seq2seq_criteria, step
             rec_acc.reset()
 
 
-def train_cls(train_iter, model_cls, opt_cls, cls_criteria, params, epochs=1):
+def train_cls(train_iter, model_cls, opt_cls, cls_criteria, mlm_criteria, params, TEXT, epochs=1):
     for epoch in range(epochs):
         verbose = params.VERBOSE
         device = params.device
 
         cls_running_loss = Loss()
+        mlm_running_loss = Loss()
         cls_acc = AccuracyCls()
+        mlm_acc = AccuracyCls(ignore_index=-1)
 
         model_cls.train()
         for step, batch in enumerate(train_iter):
@@ -320,13 +333,22 @@ def train_cls(train_iter, model_cls, opt_cls, cls_criteria, params, epochs=1):
             src = src.to(device)
             src_mask = src_mask.to(device)
             labels = labels.to(device)
-            train_cls_step(model_cls=model_cls, cls_criteria=cls_criteria, opt_cls=opt_cls, src=src, src_mask=src_mask,
-                           labels=labels, cls_running_loss=cls_running_loss, cls_acc=cls_acc,
-                           trans_cls=params.TRANS_CLS)
+            train_cls_step(model_cls=model_cls, cls_criteria=cls_criteria, mlm_criteria=mlm_criteria,
+                           opt_cls=opt_cls, src=src, src_mask=src_mask,
+                           labels=labels, cls_running_loss=cls_running_loss, mlm_running_loss=mlm_running_loss,
+                           cls_acc=cls_acc, mlm_acc=mlm_acc, TEXT=TEXT,
+                           w_mlm_loss=params.WEIGHT_MLM_LOSS, trans_cls=params.TRANS_CLS)
 
             if verbose and step % 100 == 99:
                 logging.info(
-                    "e-{},s-{}: Training cls loss {} acc {}".format(epoch, step, cls_running_loss(),
+                    "e-{},s-{}: Training cls loss {:.4f} acc {:.4f}".format(epoch, step, cls_running_loss(),
                                                                     cls_acc()))
+                logging.info(
+                    "e-{},s-{}: Training mlm loss {:.4f} acc {:.4f}".format(epoch, step, mlm_running_loss(),
+                                                                    mlm_acc()))
+
                 cls_running_loss.reset()
+                mlm_running_loss.reset()
+
                 cls_acc.reset()
+                mlm_acc.reset()

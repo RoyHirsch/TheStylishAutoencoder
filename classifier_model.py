@@ -58,3 +58,57 @@ class TransformerClassifier(nn.Module):
         out = self.generator(out)
         out = self.masked_mean(out, src_mask)
         return out
+
+
+class TransformerClassifierAndLM(nn.Module):
+    """
+    Transformer for style classification
+    """
+
+    def __init__(self, output_size, input_size, vocab_size, N=6, d_model=512, d_ff=2048, h=8, dropout=0.1, max_len=128):
+        super().__init__()
+        # self.src_embed = nn.Linear(input_size, d_model)
+        self.src_embed = Embeddings(d_model, input_size)
+        self.argmax = ArgMaxEmbed.apply
+        c = copy.deepcopy
+        attn = MultiHeadedAttention(h, d_model)
+        ff = PositionwiseFeedForward(d_model, d_ff, dropout)
+        self.position = PositionalEncoding(d_model, dropout, max_len)
+        self.encoder = BasicEncoder(EncoderLayer(d_model, c(attn), c(ff), dropout), N)
+        # todo maybe add layer norm ?
+        self.generator = nn.Linear(d_model, output_size)
+        self.masked_mean = MaskedMean()
+
+        self.vocab_generator = nn.Linear(d_model, vocab_size, bias=False)
+        self.bias = nn.Parameter(torch.zeros(vocab_size))
+
+        for p in self.parameters():
+            if p.dim() > 1:
+                nn.init.xavier_uniform_(p)
+
+    def forward(self, src, src_mask, argmax=False):
+        if argmax:
+            src = self.argmax(src, self.src_embed)
+        else:
+            src = self.src_embed(src)
+        src = self.position(src)
+        out = self.encoder(src, src_mask)
+        out = self.generator(out)
+        out = self.masked_mean(out, src_mask)
+        return out
+
+    def forward_cls_and_lm(self, src, src_mask, argmax=False):
+        if argmax:
+            src = self.argmax(src, self.src_embed)
+        else:
+            src = self.src_embed(src)
+        src = self.position(src)
+        out = self.encoder(src, src_mask)
+
+        out_1 = self.generator(out)
+        out_1 = self.masked_mean(out_1, src_mask)
+
+        out_2 = self.vocab_generator(out) + self.bias
+
+        return out_1, out_2
+

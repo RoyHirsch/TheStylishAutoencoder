@@ -60,13 +60,18 @@ class AccuracyRec(object):
 
 class AccuracyCls(object):
 
-    def __init__(self):
+    def __init__(self, ignore_index=None):
         ''' Running accuracy for classification '''
 
         self.correct = 0.0
         self.total = 0.0
+        self.ignore_index = ignore_index
 
     def update(self, outputs, targets):
+        if self.ignore_index:
+            outputs = outputs[~torch.eq(targets, self.ignore_index)]
+            targets = targets[~torch.eq(targets, self.ignore_index)]
+
         _, predicted = torch.max(outputs.data, 1)
         self.total += targets.size(0)
         self.correct += (predicted == targets).sum().item()

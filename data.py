@@ -206,3 +206,28 @@ def get_data_loaders(params, TEXT, LABEL):
             dill.dump((train_data, test_data), f)
 
     return train_dataset, test_dataset
+
+def get_special_tokens(TEXT):
+    return TEXT.stoi
+
+def get_inds_of_token(tensor, special_tokens):
+    special_locations = []
+
+    for token in special_tokens:
+        special_locations.append(tensor == token).nonzero().tolist()
+    return special_locations
+
+def mask_tokens(inputs, mlm_probability=0.15, mask_token_id=3, pad_token_id=1):
+    """ Prepare masked tokens inputs/labels for masked language modeling: 80% MASK, 10% random, 10% original. """
+    labels = inputs.clone()
+
+    # We sample a few tokens in each sequence for masked-LM training (with probability mlm_probability defaults to 0.15 in Bert/RoBERTa)
+    probability_matrix = torch.full(labels.shape, mlm_probability)
+    probability_matrix[torch.eq(labels, pad_token_id)] = 0.0
+    probability_matrix[-1, :] = 0.0
+    masked_indices = torch.bernoulli(probability_matrix).bool()
+    labels[~masked_indices] = -1  # We only compute loss on masked tokens
+
+    inputs[masked_indices] = mask_token_id
+
+    return inputs, labels
